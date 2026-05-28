@@ -213,35 +213,37 @@ Do not output any markdown formatting, backticks, or other text outside the JSON
       return await response.json();
     };
 
-    let data;
-    try {
-      console.log("Trying claude-sonnet-4-6...");
-      data = await tryModel("claude-sonnet-4-6");
-    } catch (e) {
-      if (e.message && e.message.startsWith("MODEL_NOT_FOUND")) {
-        try {
-          console.log("claude-sonnet-4-6 not found. Retrying with claude-sonnet-4-5-20250929...");
-          data = await tryModel("claude-sonnet-4-5-20250929");
-        } catch (e2) {
-          if (e2.message && e2.message.startsWith("MODEL_NOT_FOUND")) {
-            try {
-              console.log("claude-sonnet-4-5-20250929 not found. Retrying with claude-haiku-4-5-20251001...");
-              data = await tryModel("claude-haiku-4-5-20251001");
-            } catch (e3) {
-              if (e3.message && e3.message.startsWith("MODEL_NOT_FOUND")) {
-                console.log("claude-haiku-4-5-20251001 not found. Retrying with claude-3-5-sonnet-20241022...");
-                data = await tryModel("claude-3-5-sonnet-20241022");
-              } else {
-                throw e3;
-              }
-            }
-          } else {
-            throw e2;
-          }
+    const modelsToTry = [
+      "claude-sonnet-4-6",
+      "claude-sonnet-4-5-20250929",
+      "claude-haiku-4-5-20251001",
+      "claude-3-5-sonnet-latest",
+      "claude-3-5-sonnet-20241022",
+      "claude-3-5-haiku-latest",
+      "claude-3-5-haiku-20241022",
+      "claude-3-haiku-20240307"
+    ];
+
+    let lastError = null;
+    let data = null;
+
+    for (const model of modelsToTry) {
+      try {
+        console.log(`Trying Claude model: ${model}...`);
+        data = await tryModel(model);
+        break; // Success!
+      } catch (err) {
+        lastError = err;
+        if (err.message && err.message.includes("MODEL_NOT_FOUND")) {
+          console.warn(`Model ${model} not found, trying next fallback...`);
+          continue;
         }
-      } else {
-        throw e;
+        throw err;
       }
+    }
+
+    if (!data) {
+      throw lastError || new Error("All Claude models failed to generate content.");
     }
 
     let resultText = data.content[0].text.trim();
