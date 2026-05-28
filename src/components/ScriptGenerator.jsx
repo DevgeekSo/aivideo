@@ -1,0 +1,495 @@
+import React, { useState, useEffect } from 'react';
+import { Sparkles, Key, FileText, Plus, Trash2, Video, RefreshCw } from 'lucide-react';
+import { generateVideoScript } from '../utils/aiHelpers';
+
+const PRESETS = [
+  {
+    name: "Faceless Tech",
+    prompt: "A motivational short vertical video about why coding is the superpower of the 21st century.",
+    icon: "🎬"
+  },
+  {
+    name: "Dialogue Podcast",
+    prompt: "A funny back-and-forth dialogue between two programmers discussing tabs vs spaces in code.",
+    icon: "🎙️"
+  },
+  {
+    name: "Solo Guru Tip",
+    prompt: "Provide a high-impact productivity tip for developers to beat procrastination and build projects.",
+    icon: "💡"
+  },
+  {
+    name: "Tweet Slide",
+    prompt: "Showcase a funny tweet complaining about spending hours debugging a missing semicolon.",
+    icon: "🐦"
+  }
+];
+
+export default function ScriptGenerator({
+  onScriptGenerated = () => {},
+  scenes = [],
+  setScenes = () => {},
+  videoProfile = 'faceless',
+  setVideoProfile = () => {},
+  scriptData = null,
+  setScriptData = () => {},
+  targetDuration = 'auto',
+  setTargetDuration = () => {}
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+
+  // API keys states loaded from localStorage (hardcoded user keys as default fallbacks)
+  const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('key_gemini') || import.meta.env.VITE_GEMINI_API_KEY || "");
+  const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem('key_anthropic') || import.meta.env.VITE_ANTHROPIC_API_KEY || "");
+  const [pexelsKey, setPexelsKey] = useState(() => localStorage.getItem('key_pexels') || import.meta.env.VITE_PEXELS_API_KEY || "");
+  const [pixabayKey, setPixabayKey] = useState(() => localStorage.getItem('key_pixabay') || "");
+  const [aiProvider, setAiProvider] = useState(() => localStorage.getItem('key_ai_provider') || "anthropic");
+
+  // Sync keys to local storage on change
+  useEffect(() => {
+    localStorage.setItem('key_gemini', geminiKey);
+  }, [geminiKey]);
+
+  useEffect(() => {
+    localStorage.setItem('key_anthropic', anthropicKey);
+  }, [anthropicKey]);
+
+  useEffect(() => {
+    localStorage.setItem('key_pexels', pexelsKey);
+  }, [pexelsKey]);
+
+  useEffect(() => {
+    localStorage.setItem('key_pixabay', pixabayKey);
+  }, [pixabayKey]);
+
+  useEffect(() => {
+    localStorage.setItem('key_ai_provider', aiProvider);
+  }, [aiProvider]);
+
+  // Ensure local storage is initialized with these defaults on load
+  useEffect(() => {
+    if (!localStorage.getItem('key_gemini') && import.meta.env.VITE_GEMINI_API_KEY) {
+      localStorage.setItem('key_gemini', import.meta.env.VITE_GEMINI_API_KEY);
+    }
+    if (!localStorage.getItem('key_anthropic') && import.meta.env.VITE_ANTHROPIC_API_KEY) {
+      localStorage.setItem('key_anthropic', import.meta.env.VITE_ANTHROPIC_API_KEY);
+    }
+    if (!localStorage.getItem('key_pexels') && import.meta.env.VITE_PEXELS_API_KEY) {
+      localStorage.setItem('key_pexels', import.meta.env.VITE_PEXELS_API_KEY);
+    }
+  }, []);
+
+  const handleGenerate = async () => {
+    if (!prompt.trim()) return;
+    setLoading(true);
+    try {
+      const activeKey = aiProvider === 'gemini' ? geminiKey : 
+                        aiProvider === 'anthropic' ? anthropicKey : 
+                        aiProvider === 'groq' ? (localStorage.getItem('key_groq') || "") : "";
+
+      const data = await generateVideoScript(prompt, activeKey, targetDuration, aiProvider);
+      
+      // Update parent states
+      setVideoProfile(data.videoProfile);
+      setScriptData(data);
+      
+      // Process scenes to ensure proper IDs and default speakers
+      const processedScenes = (data.scenes || []).map((s, idx) => ({
+        ...s,
+        id: s.id || `scene-${Date.now()}-${idx}`
+      }));
+      
+      setScenes(processedScenes);
+      onScriptGenerated(processedScenes, {
+        geminiKey,
+        anthropicKey,
+        pexelsKey,
+        pixabayKey
+      }, data);
+    } catch (e) {
+      alert("Error generating script: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSceneChange = (id, field, value) => {
+    const updated = scenes.map(s => {
+      if (s.id === id) {
+        return { ...s, [field]: value };
+      }
+      return s;
+    });
+    setScenes(updated);
+  };
+
+  const addScene = () => {
+    const newScene = {
+      id: `scene-${Date.now()}`,
+      text: "New phrase block",
+      text2: "",
+      searchKeyword: "nature",
+      duration: 3.5,
+      speaker: "A",
+      isSentenceBreak: false
+    };
+    setScenes([...scenes, newScene]);
+  };
+
+  const deleteScene = (id) => {
+    setScenes(scenes.filter(s => s.id !== id));
+  };
+
+  return (
+    <div className="flex-col gap-4 w-full">
+      {/* Main prompt creator */}
+      <div className="glass-panel flex-col gap-3" style={{ marginTop: '16px' }}>
+        <div className="flex-row items-center justify-between" style={{ width: '100%' }}>
+          <h3 className="flex-row items-center gap-2" style={{ fontSize: '14px', color: 'var(--text-primary)' }}>
+            <Sparkles size={16} style={{ color: 'var(--color-primary)' }} /> Start with AI Prompt
+          </h3>
+          <button
+            onClick={() => setShowKeys(!showKeys)}
+            className="flex-row items-center gap-1"
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '6px',
+              padding: '4px 8px',
+              fontSize: '11px',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Key size={12} /> {showKeys ? "Hide Settings" : "AI Settings"}
+          </button>
+        </div>
+
+        {showKeys && (
+          <div className="flex-col gap-3" style={{
+            background: 'rgba(0,0,0,0.2)',
+            border: '1px solid rgba(255,255,255,0.05)',
+            borderRadius: '8px',
+            padding: '12px',
+            marginTop: '4px',
+            marginBottom: '8px'
+          }}>
+            <div className="form-group">
+              <label className="input-label" style={{ fontSize: '10px' }}>AI Provider</label>
+              <select
+                value={aiProvider}
+                onChange={(e) => setAiProvider(e.target.value)}
+                className="select-input"
+                style={{ padding: '6px 10px', fontSize: '12px' }}
+              >
+                <option value="anthropic">Anthropic Claude (Recommended)</option>
+                <option value="gemini">Google Gemini</option>
+                <option value="groq">Groq Llama 3</option>
+                <option value="offline">Offline Sandbox (No API Keys)</option>
+              </select>
+            </div>
+
+            {aiProvider === 'anthropic' && (
+              <div className="form-group">
+                <label className="input-label" style={{ fontSize: '10px' }}>Claude API Key</label>
+                <input
+                  type="password"
+                  placeholder="sk-ant-..."
+                  value={anthropicKey}
+                  onChange={(e) => setAnthropicKey(e.target.value)}
+                  className="text-input"
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
+                />
+              </div>
+            )}
+
+            {aiProvider === 'gemini' && (
+              <div className="form-group">
+                <label className="input-label" style={{ fontSize: '10px' }}>Gemini API Key</label>
+                <input
+                  type="password"
+                  placeholder="AIzaSy..."
+                  value={geminiKey}
+                  onChange={(e) => setGeminiKey(e.target.value)}
+                  className="text-input"
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
+                />
+              </div>
+            )}
+
+            {aiProvider === 'groq' && (
+              <div className="form-group">
+                <label className="input-label" style={{ fontSize: '10px' }}>Groq API Key</label>
+                <input
+                  type="password"
+                  placeholder="gsk_..."
+                  value={localStorage.getItem('key_groq') || ""}
+                  onChange={(e) => {
+                    localStorage.setItem('key_groq', e.target.value);
+                    // force render
+                    setPrompt(p => p);
+                  }}
+                  className="text-input"
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
+                />
+              </div>
+            )}
+
+            <div className="form-group">
+              <label className="input-label" style={{ fontSize: '10px' }}>Pexels Stock Footage Key</label>
+              <input
+                type="password"
+                placeholder="Pexels API key..."
+                value={pexelsKey}
+                onChange={(e) => setPexelsKey(e.target.value)}
+                className="text-input"
+                style={{ padding: '6px 10px', fontSize: '12px' }}
+              />
+            </div>
+          </div>
+        )}
+
+        <textarea 
+          placeholder="What is your video about? Example: 'Top 3 cybersecurity rules for beginners' or paste your script..."
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          className="textarea-input"
+          style={{ minHeight: '100px' }}
+        />
+
+        {/* Target Duration Selector */}
+        <div className="form-group">
+          <label className="input-label" style={{ fontSize: '10px' }}>Target Video Duration</label>
+          <select
+            value={targetDuration}
+            onChange={(e) => setTargetDuration(e.target.value)}
+            className="select-input"
+            style={{ padding: '8px 12px', fontSize: '12.5px' }}
+          >
+            <option value="auto">Auto / Dynamic (estimate based on content)</option>
+            <option value="30">30 seconds (Short story/reels)</option>
+            <option value="45">45 seconds (Medium duration)</option>
+            <option value="60">60 seconds (1 minute standard)</option>
+            <option value="150">150 seconds (2.5 minutes long form)</option>
+          </select>
+        </div>
+
+        {/* Preset selections */}
+        <div className="presets-grid">
+          {PRESETS.map((p, idx) => (
+            <button
+              key={idx}
+              onClick={() => setPrompt(p.prompt)}
+              className="preset-card"
+            >
+              <span className="preset-card-icon">{p.icon}</span>
+              <div className="preset-card-info">
+                <h4>{p.name}</h4>
+                <p>{p.prompt}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={handleGenerate}
+          disabled={loading || !prompt.trim()}
+          className="glow-btn"
+          style={{ marginTop: '8px', width: '100%' }}
+        >
+          {loading ? (
+            <>
+              <RefreshCw size={16} className="animate-spin" /> Writing Storyboard...
+            </>
+          ) : (
+            <>
+              <Sparkles size={16} /> Generate Video Blueprint
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Scenes storyboard Editor */}
+      {scenes.length > 0 && (
+        <div className="glass-panel flex-col gap-4" style={{ marginTop: '16px' }}>
+          <div className="flex-row items-center justify-between">
+            <h3 className="flex-row items-center gap-2" style={{ fontSize: '14px', color: 'var(--text-primary)' }}>
+              <FileText size={16} style={{ color: 'var(--color-primary)' }} /> Scene Storyboard
+            </h3>
+            
+            {/* Profile Selector */}
+            <select
+              value={videoProfile}
+              onChange={(e) => setVideoProfile(e.target.value)}
+              className="select-input"
+              style={{ width: 'auto', padding: '6px 12px', fontSize: '11px' }}
+            >
+              <option value="faceless">Faceless B-Roll</option>
+              <option value="split-screen">Dialogue (Split-Screen)</option>
+              <option value="guru">Guru (Talking Head)</option>
+              <option value="tweet-showcase">Tweet Showcase</option>
+            </select>
+          </div>
+
+          <div className="scenes-list">
+            {scenes.map((scene, index) => (
+              <div 
+                key={scene.id} 
+                className="scene-card"
+              >
+                <div className="scene-card-header">
+                  <span>SCENE #{index + 1}</span>
+                  <button 
+                    onClick={() => deleteScene(scene.id)}
+                    className="scene-card-delete-btn"
+                    title="Delete Scene"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+
+                {/* Subtitle Input */}
+                <div className="form-group">
+                  <div className="flex-row items-center justify-between">
+                    <label className="input-label" style={{ fontSize: '10px' }}>Subtitle text</label>
+                  </div>
+                  <input
+                    type="text"
+                    value={scene.text}
+                    onChange={(e) => handleSceneChange(scene.id, 'text', e.target.value)}
+                    className="text-input"
+                    style={{ padding: '6px 10px', fontSize: '12.5px' }}
+                  />
+                </div>
+
+                {/* Subtitle 2 Input */}
+                <div className="form-group" style={{ marginTop: '8px' }}>
+                  <div className="flex-row items-center justify-between">
+                    <label className="input-label" style={{ fontSize: '10px' }}>Second Subtitle text (optional)</label>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Optional second subtitle..."
+                    value={scene.text2 || ""}
+                    onChange={(e) => handleSceneChange(scene.id, 'text2', e.target.value)}
+                    className="text-input"
+                    style={{ padding: '6px 10px', fontSize: '12.5px' }}
+                  />
+                </div>
+
+                {/* Grid Inputs */}
+                <div className="card-grid-3">
+                  <div className="form-group">
+                    <label className="input-label" style={{ fontSize: '9px' }}>Keywords</label>
+                    <input
+                      type="text"
+                      value={scene.searchKeyword}
+                      onChange={(e) => handleSceneChange(scene.id, 'searchKeyword', e.target.value)}
+                      className="text-input"
+                      style={{ padding: '4px 8px', fontSize: '11px' }}
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label className="input-label" style={{ fontSize: '9px' }}>Duration (s)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.9"
+                      max="3.0"
+                      value={scene.duration}
+                      onChange={(e) => handleSceneChange(scene.id, 'duration', parseFloat(e.target.value) || 0)}
+                      onBlur={(e) => {
+                        const val = parseFloat(e.target.value) || 3;
+                        handleSceneChange(scene.id, 'duration', Math.max(0.9, Math.min(3.0, val)));
+                      }}
+                      className="text-input"
+                      style={{ padding: '4px 8px', fontSize: '11px', borderColor: scene.duration > 3.0 || scene.duration < 0.9 ? '#ef4444' : undefined }}
+                      title="Duration must be between 0.9 and 3.0 seconds"
+                    />
+                  </div>
+
+                  {videoProfile === 'split-screen' ? (
+                    <div className="form-group">
+                      <label className="input-label" style={{ fontSize: '9px' }}>Speaker</label>
+                      <select
+                        value={scene.speaker}
+                        onChange={(e) => handleSceneChange(scene.id, 'speaker', e.target.value)}
+                        className="select-input"
+                        style={{ padding: '4px 8px', fontSize: '11px' }}
+                      >
+                        <option value="A">Speaker A (Top)</option>
+                        <option value="B">Speaker B (Bottom)</option>
+                      </select>
+                    </div>
+                  ) : (
+                    <div className="form-group">
+                      <label className="input-label" style={{ fontSize: '9px' }}>Transition</label>
+                      <select
+                        value={scene.transition || 'none'}
+                        onChange={(e) => handleSceneChange(scene.id, 'transition', e.target.value)}
+                        className="select-input"
+                        style={{ padding: '4px 8px', fontSize: '11.5px', color: 'var(--text-primary)' }}
+                      >
+                        <option value="none">Cut (None)</option>
+                        <option value="cross-dissolve">Dissolve</option>
+                        <option value="slide-left">Slide L</option>
+                        <option value="slide-right">Slide R</option>
+                        <option value="slide-up">Slide U</option>
+                        <option value="zoom-fade">Zoom F</option>
+                        <option value="wipe-left">Wipe L</option>
+                        <option value="wipe-right">Wipe R</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tweet Card Content fields if Profile is tweet-showcase */}
+                {videoProfile === 'tweet-showcase' && scene.cardContent && (
+                  <div className="card-grid-2" style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.03)' }}>
+                    <div className="form-group">
+                      <label className="input-label" style={{ fontSize: '9px' }}>Twitter Name</label>
+                      <input
+                        type="text"
+                        value={scene.cardContent.name}
+                        onChange={(e) => {
+                          const updatedContent = { ...scene.cardContent, name: e.target.value };
+                          handleSceneChange(scene.id, 'cardContent', updatedContent);
+                        }}
+                        className="text-input"
+                        style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--text-secondary)' }}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="input-label" style={{ fontSize: '9px' }}>Twitter Handle</label>
+                      <input
+                        type="text"
+                        value={scene.cardContent.handle}
+                        onChange={(e) => {
+                          const updatedContent = { ...scene.cardContent, handle: e.target.value };
+                          handleSceneChange(scene.id, 'cardContent', updatedContent);
+                        }}
+                        className="text-input"
+                        style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--text-secondary)' }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={addScene}
+            className="dashed-add-btn"
+          >
+            <Plus size={14} /> Add Subtitle Block
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
