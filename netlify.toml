@@ -1,0 +1,34 @@
+[[redirects]]
+  from = "/api/tts"
+  to = "https://translate.google.com/translate_tts"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/youdao"
+  to = "https://dict.youdao.com/dictvoice"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/did/*"
+  to = "https://api.d-id.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/anthropic/*"
+  to = "https://api.anthropic.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/openrouter/*"
+  to = "https://openrouter.ai/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
