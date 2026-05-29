@@ -14,6 +14,7 @@ import {
   Image as ImageIcon 
 } from 'lucide-react';
 import { searchStockVideos } from '../utils/pexelsApi';
+import { generateAiVideo } from '../utils/aiVideoApi';
 import { 
   DID_AVATAR_PRESETS, 
   DID_VOICE_PRESETS, 
@@ -33,7 +34,8 @@ export default function VideoSelector({
   autoPickProgress = "",
   autoPickError = "",
   setAutoPickError = () => {},
-  handleAutoPickAllClips = null
+  handleAutoPickAllClips = null,
+  setScenes = null
 }) {
   const [activeSceneId, setActiveSceneId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -68,7 +70,7 @@ export default function VideoSelector({
   const [generationStates, setGenerationStates] = useState({});
   const [globalGenerating, setGlobalGenerating] = useState(false);
 
-  const didKey = apiKeys.didKey || localStorage.getItem('key_did') || "c2FuZGVlcGhpbndhcjIzQGdtYWlsLmNvbQ:cdawCtTz4BprbXCj2gSPn";
+  const didKey = apiKeys.didKey || localStorage.getItem('key_did') || "";
 
   // Select first scene by default when scenes load
   useEffect(() => {
@@ -88,14 +90,19 @@ export default function VideoSelector({
     }
   }, [activeSceneId]);
 
-  // Automatically default tab based on video profile
+  // Automatically default tab based on video profile and active scene source
   useEffect(() => {
     if (videoProfile === 'split-screen' || videoProfile === 'guru') {
       setVideoSourceTab('avatar');
     } else {
-      setVideoSourceTab('stock');
+      const activeScene = scenes.find(s => s.id === activeSceneId);
+      if (activeScene && activeScene.videoSource === 'ai-video') {
+        setVideoSourceTab('ai-video');
+      } else {
+        setVideoSourceTab('stock');
+      }
     }
-  }, [videoProfile]);
+  }, [videoProfile, activeSceneId, scenes]);
 
   // Fetch D-ID credits when key or tab changes
   useEffect(() => {
@@ -247,6 +254,50 @@ export default function VideoSelector({
     }
   };
 
+  // AI Video States
+  const [aiVideoStates, setAiVideoStates] = useState({});
+
+  const handleGenerateAiVideoScene = async (sceneId) => {
+    const scene = scenes.find(s => s.id === sceneId);
+    if (!scene) return;
+
+    setAiVideoStates(prev => ({
+      ...prev,
+      [sceneId]: { status: 'generating', text: 'Submitting request...', error: '' }
+    }));
+
+    try {
+      const prompt = scene.promptForAiVideo || `A beautiful video showing ${scene.searchKeyword}`;
+      const videoUrl = await generateAiVideo(prompt, {
+        provider: apiKeys.aiVideoProvider || 'mock',
+        apiKey: apiKeys.aiVideoKey || '',
+        customUrl: apiKeys.aiVideoCustomUrl || '',
+        customHeaders: apiKeys.aiVideoCustomHeaders || '{}',
+        customPayload: apiKeys.aiVideoCustomPayload || '{}',
+        customPath: apiKeys.aiVideoCustomPath || 'video.url',
+        apiKeys: apiKeys,
+        onStatusUpdate: (statusText) => {
+          setAiVideoStates(prev => ({
+            ...prev,
+            [sceneId]: { status: 'generating', text: statusText, error: '' }
+          }));
+        }
+      });
+
+      handleSelectVideo(sceneId, videoUrl);
+      setAiVideoStates(prev => ({
+        ...prev,
+        [sceneId]: { status: 'done', text: 'Success!', error: '' }
+      }));
+    } catch (err) {
+      console.error("AI Video Generation failed:", err);
+      setAiVideoStates(prev => ({
+        ...prev,
+        [sceneId]: { status: 'error', text: 'Failed', error: err.message }
+      }));
+    }
+  };
+
   const activeScene = scenes.find(s => s.id === activeSceneId);
   const activeSceneRole = activeScene ? (videoProfile === 'guru' ? 'GURU' : (activeScene.speaker || 'A')) : 'A';
 
@@ -263,14 +314,14 @@ export default function VideoSelector({
       </div>
 
       {/* Dual Tab Bar */}
-      <div className="flex-row gap-2" style={{ padding: '2px', background: 'rgba(0,0,0,0.2)', borderRadius: '10px' }}>
+      <div className="flex-row gap-1" style={{ padding: '2px', background: 'rgba(0,0,0,0.2)', borderRadius: '10px' }}>
         <button
           onClick={() => setVideoSourceTab('stock')}
           className={`flex-row-center gap-2`}
           style={{
             flex: 1,
-            padding: '8px',
-            fontSize: '12px',
+            padding: '8px 4px',
+            fontSize: '11px',
             fontWeight: '600',
             borderRadius: '8px',
             border: 'none',
@@ -281,15 +332,15 @@ export default function VideoSelector({
             transition: 'all 0.2s'
           }}
         >
-          <Search size={14} /> Stock Clips
+          <Search size={12} /> Stock Clips
         </button>
         <button
           onClick={() => setVideoSourceTab('avatar')}
           className={`flex-row-center gap-2`}
           style={{
             flex: 1,
-            padding: '8px',
-            fontSize: '12px',
+            padding: '8px 4px',
+            fontSize: '11px',
             fontWeight: '600',
             borderRadius: '8px',
             border: 'none',
@@ -300,7 +351,26 @@ export default function VideoSelector({
             transition: 'all 0.2s'
           }}
         >
-          <Sparkles size={14} style={{ color: 'var(--color-primary)' }} /> Talking Avatars (D-ID)
+          <Sparkles size={12} style={{ color: 'var(--color-primary)' }} /> Avatars
+        </button>
+        <button
+          onClick={() => setVideoSourceTab('ai-video')}
+          className={`flex-row-center gap-2`}
+          style={{
+            flex: 1,
+            padding: '8px 4px',
+            fontSize: '11px',
+            fontWeight: '600',
+            borderRadius: '8px',
+            border: 'none',
+            cursor: 'pointer',
+            background: videoSourceTab === 'ai-video' ? 'var(--bg-darker)' : 'transparent',
+            color: videoSourceTab === 'ai-video' ? 'var(--text-primary)' : 'var(--text-muted)',
+            boxShadow: videoSourceTab === 'ai-video' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <Video size={12} style={{ color: 'var(--color-accent)' }} /> AI Video
         </button>
       </div>
 
@@ -463,6 +533,90 @@ export default function VideoSelector({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* AI VIDEO GENERATOR TAB CONTENT */}
+      {videoSourceTab === 'ai-video' && activeScene && (
+        <div className="flex-col gap-4" style={{ paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <div className="flex-row items-center justify-between">
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              Configure and generate AI video clips for this scene
+            </span>
+            {selectedVideos[activeSceneId] && (
+              <span style={{ fontSize: '10px', color: 'var(--color-emerald)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}>
+                <CheckCircle2 size={11} /> Clip Ready
+              </span>
+            )}
+          </div>
+
+          {/* Current AI Prompt configuration */}
+          <div className="form-group">
+            <label className="input-label" style={{ fontSize: '10px' }}>Text-to-Video Generation Prompt</label>
+            <textarea
+              value={activeScene.promptForAiVideo || ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (setScenes) {
+                  setScenes(prev => prev.map(s => s.id === activeSceneId ? { ...s, promptForAiVideo: val } : s));
+                }
+              }}
+              placeholder="A golden retriever wearing astronaut gear on the moon, looking around in awe, cinematic lighting..."
+              className="textarea-input"
+              style={{ minHeight: '80px', fontSize: '12.5px' }}
+            />
+            <span style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Tip: Be descriptive. Mention camera movements, lighting style, and high-quality keywords (e.g. "slow pan, cinematic lighting, 8k resolution").
+            </span>
+          </div>
+
+          {/* Active scene generation status */}
+          {aiVideoStates[activeSceneId] && (
+            <div className="alert-box" style={{ background: aiVideoStates[activeSceneId].status === 'error' ? 'rgba(239, 68, 68, 0.05)' : 'rgba(99, 102, 241, 0.05)', borderColor: aiVideoStates[activeSceneId].status === 'error' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(99, 102, 241, 0.2)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {aiVideoStates[activeSceneId].status === 'generating' && (
+                    <Loader2 size={14} className="animate-spin" style={{ color: 'var(--color-primary)' }} />
+                  )}
+                  <span className="text-xs font-bold uppercase" style={{ color: aiVideoStates[activeSceneId].status === 'error' ? 'var(--color-red)' : 'var(--text-primary)' }}>
+                    {aiVideoStates[activeSceneId].status === 'error' ? 'Generation Error' : 'Status'}
+                  </span>
+                </div>
+                <p style={{ fontSize: '12px', margin: 0, color: 'var(--text-secondary)' }}>
+                  {aiVideoStates[activeSceneId].text}
+                </p>
+                {aiVideoStates[activeSceneId].error && (
+                  <p style={{ fontSize: '10px', color: 'var(--color-red)', margin: 0, marginTop: '4px', background: 'rgba(239,68,68,0.08)', padding: '6px', borderRadius: '6px' }}>
+                    {aiVideoStates[activeSceneId].error}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Generation Actions */}
+          <div className="flex-col gap-2">
+            <button
+              onClick={() => handleGenerateAiVideoScene(activeSceneId)}
+              disabled={aiVideoStates[activeSceneId]?.status === 'generating'}
+              className="glow-btn"
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            >
+              <Sparkles size={14} />
+              <span>
+                {selectedVideos[activeSceneId] ? "Regenerate AI Video Clip" : "Generate AI Video Clip"}
+              </span>
+            </button>
+          </div>
+
+          {/* Settings Context Warning */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+            <AlertCircle size={14} style={{ color: 'var(--text-muted)' }} />
+            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+              Provider: <strong style={{ color: 'var(--color-accent)' }}>{apiKeys.aiVideoProvider === 'mock' ? 'Mock / Sandbox (No Keys)' : apiKeys.aiVideoProvider === 'fal-luma' ? 'Fal.ai Luma' : apiKeys.aiVideoProvider === 'fal-kling' ? 'Fal.ai Kling' : 'Custom Endpoint'}</strong>. Change this in Script &gt; AI Settings.
+            </span>
+          </div>
+
         </div>
       )}
 

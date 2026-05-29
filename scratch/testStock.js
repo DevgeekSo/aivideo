@@ -1,6 +1,4 @@
-
-
-const PEXELS_KEY = "Vw1mbEJYFNcaYgoiXn2qkWUWgJNQNc1tN2m9WNGIRDBDWlI3xuYFU1Qn";
+const PEXELS_KEY = "";
 
 async function testPexels() {
   const url = `https://api.pexels.com/videos/search?query=nature&per_page=3&orientation=portrait`;

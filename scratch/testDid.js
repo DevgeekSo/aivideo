@@ -1,5 +1,5 @@
-const email = "c2FuZGVlcGhpbndhcjIzQGdtYWlsLmNvbQ";
-const apiKey = "cdawCtTz4BprbXCj2gSPn";
+const email = "";
+const apiKey = "";
 const credentialString = `${email}:${apiKey}`;
 const base64Credentials = Buffer.from(credentialString).toString('base64');
 

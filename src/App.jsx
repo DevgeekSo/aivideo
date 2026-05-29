@@ -21,6 +21,7 @@ import AudioSettings from './components/AudioSettings';
 import ExportPanel from './components/ExportPanel';
 import { estimateSubtitleTimestamps } from './utils/speechEngine';
 import { searchStockVideos } from './utils/pexelsApi';
+import { generateAiVideo } from './utils/aiVideoApi';
 
 export default function App() {
   // Active Sidebar Tab: 'script' | 'videos' | 'audio' | 'subtitles' | 'export'
@@ -77,8 +78,14 @@ export default function App() {
     gcloudKey: localStorage.getItem('key_gcloud') || import.meta.env.VITE_GCLOUD_API_KEY || "",
     elevenLabsKey: localStorage.getItem('key_elevenlabs') || import.meta.env.VITE_ELEVENLABS_API_KEY || "",
     didKey: localStorage.getItem('key_did') || import.meta.env.VITE_DID_API_KEY || "",
-    jamendoKey: localStorage.getItem('key_jamendo') || "buKd1mh6lsk8tWRegCR5",
-    freesoundKey: localStorage.getItem('key_freesound') || "4zEIGYZGflztcGgnsLr9iupFofCfQ8WtCV5gEE99"
+    jamendoKey: localStorage.getItem('key_jamendo') || "",
+    freesoundKey: localStorage.getItem('key_freesound') || "",
+    aiVideoProvider: localStorage.getItem('key_aivideo_provider') || 'mock',
+    aiVideoKey: localStorage.getItem('key_aivideo_key') || '',
+    aiVideoCustomUrl: localStorage.getItem('key_aivideo_custom_url') || '',
+    aiVideoCustomHeaders: localStorage.getItem('key_aivideo_custom_headers') || '{\n  "Content-Type": "application/json"\n}',
+    aiVideoCustomPayload: localStorage.getItem('key_aivideo_custom_payload') || '{\n  "prompt": "{{prompt}}",\n  "aspect_ratio": "9:16"\n}',
+    aiVideoCustomPath: localStorage.getItem('key_aivideo_custom_path') || 'video.url'
   });
 
   // Background Auto-Pick states
@@ -96,25 +103,53 @@ export default function App() {
     try {
       for (let i = 0; i < targetScenes.length; i++) {
         const scene = targetScenes[i];
-        setAutoPickProgress(`Matching Scene ${i + 1}/${targetScenes.length}: "${scene.searchKeyword}"...`);
+        
+        let videoUrl = null;
 
-        // Fetch stock results
-        const clips = await searchStockVideos(scene.searchKeyword, keys);
-
-        if (clips && clips.length > 0) {
-          // Select vertical-friendly clips
-          let selectedClip = clips.find(c => c.isVertical);
-          if (!selectedClip) {
-            selectedClip = clips[0];
-          }
-          updatedVideos[scene.id] = selectedClip.videoUrl;
-        } else {
-          // Backup query
-          const backupClips = await searchStockVideos("abstract loop", keys);
-          if (backupClips && backupClips.length > 0) {
-            updatedVideos[scene.id] = backupClips[0].videoUrl;
+        if (scene.videoSource === 'ai-video') {
+          setAutoPickProgress(`Scene ${i + 1}/${targetScenes.length} (AI Video): Submitting prompt...`);
+          try {
+            const prompt = scene.promptForAiVideo || `A beautiful video showing ${scene.searchKeyword}`;
+            videoUrl = await generateAiVideo(prompt, {
+              provider: keys.aiVideoProvider || 'mock',
+              apiKey: keys.aiVideoKey || '',
+              customUrl: keys.aiVideoCustomUrl || '',
+              customHeaders: keys.aiVideoCustomHeaders || '{}',
+              customPayload: keys.aiVideoCustomPayload || '{}',
+              customPath: keys.aiVideoCustomPath || 'video.url',
+              apiKeys: keys,
+              onStatusUpdate: (status) => {
+                setAutoPickProgress(`Scene ${i + 1}/${targetScenes.length} (AI Video): ${status}`);
+              }
+            });
+          } catch (aiErr) {
+            console.error(`AI Video Gen failed for scene ${scene.id}, falling back to stock search:`, aiErr);
           }
         }
+
+        // If we didn't generate a video (either because it is pexels, or because AI generation failed)
+        if (!videoUrl) {
+          setAutoPickProgress(`Scene ${i + 1}/${targetScenes.length} (Stock): Matching "${scene.searchKeyword}"...`);
+          // Fetch stock results
+          const clips = await searchStockVideos(scene.searchKeyword, keys);
+
+          if (clips && clips.length > 0) {
+            // Select vertical-friendly clips
+            let selectedClip = clips.find(c => c.isVertical);
+            if (!selectedClip) {
+              selectedClip = clips[0];
+            }
+            videoUrl = selectedClip.videoUrl;
+          } else {
+            // Backup query
+            const backupClips = await searchStockVideos("abstract loop", keys);
+            if (backupClips && backupClips.length > 0) {
+              videoUrl = backupClips[0].videoUrl;
+            }
+          }
+        }
+
+        updatedVideos[scene.id] = videoUrl;
 
         // Incremental update so the UI updates live
         setSelectedVideos(prev => ({
@@ -134,8 +169,8 @@ export default function App() {
 
   // Auto-fetch recommended BGM and SFX from Jamendo and Freesound
   const handleAutoFetchAudio = async (scriptObj, currentScenes) => {
-    const jamendoId = localStorage.getItem('key_jamendo') || "buKd1mh6lsk8tWRegCR5";
-    const freesoundToken = localStorage.getItem('key_freesound') || "4zEIGYZGflztcGgnsLr9iupFofCfQ8WtCV5gEE99";
+    const jamendoId = localStorage.getItem('key_jamendo') || "";
+    const freesoundToken = localStorage.getItem('key_freesound') || "";
 
     // 1. Auto-Fetch BGM from Jamendo
     if (scriptObj.bgmSearchQuery) {
@@ -255,10 +290,10 @@ export default function App() {
   // Initialize default Jamendo & Freesound keys on mount if they aren't already set
   useEffect(() => {
     if (!localStorage.getItem('key_jamendo')) {
-      localStorage.setItem('key_jamendo', "buKd1mh6lsk8tWRegCR5");
+      localStorage.setItem('key_jamendo', "");
     }
     if (!localStorage.getItem('key_freesound')) {
-      localStorage.setItem('key_freesound', "4zEIGYZGflztcGgnsLr9iupFofCfQ8WtCV5gEE99");
+      localStorage.setItem('key_freesound', "");
     }
   }, []);
 
@@ -274,8 +309,14 @@ export default function App() {
         gcloudKey: localStorage.getItem('key_gcloud') || import.meta.env.VITE_GCLOUD_API_KEY || "",
         elevenLabsKey: localStorage.getItem('key_elevenlabs') || import.meta.env.VITE_ELEVENLABS_API_KEY || "",
         didKey: localStorage.getItem('key_did') || import.meta.env.VITE_DID_API_KEY || "",
-        jamendoKey: localStorage.getItem('key_jamendo') || "buKd1mh6lsk8tWRegCR5",
-        freesoundKey: localStorage.getItem('key_freesound') || "4zEIGYZGflztcGgnsLr9iupFofCfQ8WtCV5gEE99"
+        jamendoKey: localStorage.getItem('key_jamendo') || "",
+        freesoundKey: localStorage.getItem('key_freesound') || "",
+        aiVideoProvider: localStorage.getItem('key_aivideo_provider') || 'mock',
+        aiVideoKey: localStorage.getItem('key_aivideo_key') || '',
+        aiVideoCustomUrl: localStorage.getItem('key_aivideo_custom_url') || '',
+        aiVideoCustomHeaders: localStorage.getItem('key_aivideo_custom_headers') || '{\n  "Content-Type": "application/json"\n}',
+        aiVideoCustomPayload: localStorage.getItem('key_aivideo_custom_payload') || '{\n  "prompt": "{{prompt}}",\n  "aspect_ratio": "9:16"\n}',
+        aiVideoCustomPath: localStorage.getItem('key_aivideo_custom_path') || 'video.url'
       });
     };
     window.addEventListener('storage', handleStorageChange);
@@ -369,6 +410,7 @@ export default function App() {
                 autoPickError={autoPickError}
                 setAutoPickError={setAutoPickError}
                 handleAutoPickAllClips={handleAutoPickAllClips}
+                setScenes={setScenes}
               />
             )}
 

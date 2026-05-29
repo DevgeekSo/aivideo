@@ -59,6 +59,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/api\/openrouter/, ''),
+      },
+      '/api/replicate': {
+        target: 'https://api.replicate.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api\/replicate/, ''),
       }
     }
   }

@@ -47,6 +47,14 @@ export default function ScriptGenerator({
   const [pixabayKey, setPixabayKey] = useState(() => localStorage.getItem('key_pixabay') || "");
   const [aiProvider, setAiProvider] = useState(() => localStorage.getItem('key_ai_provider') || "anthropic");
 
+  // AI Video keys states
+  const [aiVideoProvider, setAiVideoProvider] = useState(() => localStorage.getItem('key_aivideo_provider') || "mock");
+  const [aiVideoKey, setAiVideoKey] = useState(() => localStorage.getItem('key_aivideo_key') || "");
+  const [aiVideoCustomUrl, setAiVideoCustomUrl] = useState(() => localStorage.getItem('key_aivideo_custom_url') || "");
+  const [aiVideoCustomHeaders, setAiVideoCustomHeaders] = useState(() => localStorage.getItem('key_aivideo_custom_headers') || '{\n  "Content-Type": "application/json"\n}');
+  const [aiVideoCustomPayload, setAiVideoCustomPayload] = useState(() => localStorage.getItem('key_aivideo_custom_payload') || '{\n  "prompt": "{{prompt}}",\n  "aspect_ratio": "9:16"\n}');
+  const [aiVideoCustomPath, setAiVideoCustomPath] = useState(() => localStorage.getItem('key_aivideo_custom_path') || 'video.url');
+
   // Sync keys to local storage on change
   useEffect(() => {
     localStorage.setItem('key_gemini', geminiKey);
@@ -68,16 +76,40 @@ export default function ScriptGenerator({
     localStorage.setItem('key_ai_provider', aiProvider);
   }, [aiProvider]);
 
+  useEffect(() => {
+    localStorage.setItem('key_aivideo_provider', aiVideoProvider);
+  }, [aiVideoProvider]);
+
+  useEffect(() => {
+    localStorage.setItem('key_aivideo_key', aiVideoKey);
+  }, [aiVideoKey]);
+
+  useEffect(() => {
+    localStorage.setItem('key_aivideo_custom_url', aiVideoCustomUrl);
+  }, [aiVideoCustomUrl]);
+
+  useEffect(() => {
+    localStorage.setItem('key_aivideo_custom_headers', aiVideoCustomHeaders);
+  }, [aiVideoCustomHeaders]);
+
+  useEffect(() => {
+    localStorage.setItem('key_aivideo_custom_payload', aiVideoCustomPayload);
+  }, [aiVideoCustomPayload]);
+
+  useEffect(() => {
+    localStorage.setItem('key_aivideo_custom_path', aiVideoCustomPath);
+  }, [aiVideoCustomPath]);
+
   // Ensure local storage is initialized with these defaults on load
   useEffect(() => {
-    if (!localStorage.getItem('key_gemini') && import.meta.env.VITE_GEMINI_API_KEY) {
-      localStorage.setItem('key_gemini', import.meta.env.VITE_GEMINI_API_KEY);
+    if (!localStorage.getItem('key_gemini')) {
+      localStorage.setItem('key_gemini', import.meta.env.VITE_GEMINI_API_KEY || "");
     }
-    if (!localStorage.getItem('key_anthropic') && import.meta.env.VITE_ANTHROPIC_API_KEY) {
-      localStorage.setItem('key_anthropic', import.meta.env.VITE_ANTHROPIC_API_KEY);
+    if (!localStorage.getItem('key_anthropic')) {
+      localStorage.setItem('key_anthropic', import.meta.env.VITE_ANTHROPIC_API_KEY || "");
     }
-    if (!localStorage.getItem('key_pexels') && import.meta.env.VITE_PEXELS_API_KEY) {
-      localStorage.setItem('key_pexels', import.meta.env.VITE_PEXELS_API_KEY);
+    if (!localStorage.getItem('key_pexels')) {
+      localStorage.setItem('key_pexels', import.meta.env.VITE_PEXELS_API_KEY || "");
     }
   }, []);
 
@@ -106,7 +138,13 @@ export default function ScriptGenerator({
         geminiKey,
         anthropicKey,
         pexelsKey,
-        pixabayKey
+        pixabayKey,
+        aiVideoProvider,
+        aiVideoKey,
+        aiVideoCustomUrl,
+        aiVideoCustomHeaders,
+        aiVideoCustomPayload,
+        aiVideoCustomPath
       }, data);
     } catch (e) {
       alert("Error generating script: " + e.message);
@@ -133,7 +171,9 @@ export default function ScriptGenerator({
       searchKeyword: "nature",
       duration: 3.5,
       speaker: "A",
-      isSentenceBreak: false
+      isSentenceBreak: false,
+      videoSource: "pexels",
+      promptForAiVideo: ""
     };
     setScenes([...scenes, newScene]);
   };
@@ -249,6 +289,103 @@ export default function ScriptGenerator({
                 style={{ padding: '6px 10px', fontSize: '12px' }}
               />
             </div>
+
+            {/* AI Video Settings Section */}
+            <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)', margin: '12px 0 8px 0' }}></div>
+            <label className="input-label" style={{ fontSize: '9px', color: 'var(--color-primary)', fontWeight: 'bold', letterSpacing: '0.5px' }}>AI Video Model Settings</label>
+            
+            <div className="form-group">
+              <label className="input-label" style={{ fontSize: '10px' }}>AI Video Provider</label>
+              <select
+                value={aiVideoProvider}
+                onChange={(e) => setAiVideoProvider(e.target.value)}
+                className="select-input"
+                style={{ padding: '6px 10px', fontSize: '12px' }}
+              >
+                <option value="mock">Mock / Sandbox AI Video (No Keys)</option>
+                <optgroup label="Fal.ai Models">
+                  <option value="fal-luma">Fal.ai Luma Dream Machine</option>
+                  <option value="fal-kling">Fal.ai Kling Video</option>
+                  <option value="fal-hunyuan">Fal.ai Hunyuan Video</option>
+                  <option value="fal-mochi">Fal.ai Mochi 1 (Preview)</option>
+                  <option value="fal-minimax">Fal.ai Minimax (Hailuo)</option>
+                  <option value="fal-svd">Fal.ai Stable Video Diffusion</option>
+                </optgroup>
+                <optgroup label="Replicate Models">
+                  <option value="replicate-luma">Replicate Luma Dream Machine</option>
+                  <option value="replicate-hunyuan">Replicate Hunyuan Video</option>
+                  <option value="replicate-minimax">Replicate Minimax (Hailuo)</option>
+                  <option value="replicate-svd">Replicate Stable Video Diffusion</option>
+                </optgroup>
+                <optgroup label="Advanced Custom">
+                  <option value="custom">Custom API Endpoint</option>
+                </optgroup>
+              </select>
+            </div>
+
+            {aiVideoProvider !== 'mock' && (
+              <div className="form-group">
+                <label className="input-label" style={{ fontSize: '10px' }}>
+                  {aiVideoProvider.startsWith('replicate') ? 'Replicate API Token' : aiVideoProvider === 'custom' ? 'API Key / Bearer Token' : 'Fal.ai API Key'}
+                </label>
+                <input
+                  type="password"
+                  placeholder={
+                    aiVideoProvider.startsWith('replicate') ? "r8_..." :
+                    aiVideoProvider === 'custom' ? "Bearer token or key..." : "fal_..."
+                  }
+                  value={aiVideoKey}
+                  onChange={(e) => setAiVideoKey(e.target.value)}
+                  className="text-input"
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
+                />
+              </div>
+            )}
+
+            {aiVideoProvider === 'custom' && (
+              <>
+                <div className="form-group">
+                  <label className="input-label" style={{ fontSize: '10px' }}>Endpoint URL</label>
+                  <input
+                    type="text"
+                    placeholder="https://api.domain.com/v1/video/generate"
+                    value={aiVideoCustomUrl}
+                    onChange={(e) => setAiVideoCustomUrl(e.target.value)}
+                    className="text-input"
+                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="input-label" style={{ fontSize: '10px' }}>Custom Headers (JSON)</label>
+                  <textarea
+                    value={aiVideoCustomHeaders}
+                    onChange={(e) => setAiVideoCustomHeaders(e.target.value)}
+                    className="textarea-input"
+                    style={{ padding: '6px 10px', fontSize: '11px', minHeight: '60px', fontFamily: 'monospace' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="input-label" style={{ fontSize: '10px' }}>Payload Template (JSON)</label>
+                  <textarea
+                    value={aiVideoCustomPayload}
+                    onChange={(e) => setAiVideoCustomPayload(e.target.value)}
+                    className="textarea-input"
+                    style={{ padding: '6px 10px', fontSize: '11px', minHeight: '80px', fontFamily: 'monospace' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="input-label" style={{ fontSize: '10px' }}>Response Video URL path</label>
+                  <input
+                    type="text"
+                    placeholder="video.url"
+                    value={aiVideoCustomPath}
+                    onChange={(e) => setAiVideoCustomPath(e.target.value)}
+                    className="text-input"
+                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                  />
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -378,6 +515,42 @@ export default function ScriptGenerator({
                     className="text-input"
                     style={{ padding: '6px 10px', fontSize: '12.5px' }}
                   />
+                </div>
+
+                {/* Visual Source (Pexels vs AI Video) */}
+                <div className="card-grid-2" style={{ marginTop: '8px', marginBottom: '4px' }}>
+                  <div className="form-group">
+                    <label className="input-label" style={{ fontSize: '10px' }}>Visual Source</label>
+                    <select
+                      value={scene.videoSource || 'pexels'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        handleSceneChange(scene.id, 'videoSource', val);
+                        if (val === 'ai-video' && !scene.promptForAiVideo) {
+                          handleSceneChange(scene.id, 'promptForAiVideo', `A clean cinematic short clip showing ${scene.searchKeyword || scene.text || 'abstract art'}, 4k, realistic`);
+                        }
+                      }}
+                      className="select-input"
+                      style={{ padding: '6px 10px', fontSize: '12px' }}
+                    >
+                      <option value="pexels">Stock Footage (Pexels)</option>
+                      <option value="ai-video">AI Video Generator</option>
+                    </select>
+                  </div>
+
+                  {scene.videoSource === 'ai-video' && (
+                    <div className="form-group">
+                      <label className="input-label" style={{ fontSize: '10px' }}>AI Video Prompt</label>
+                      <input
+                        type="text"
+                        value={scene.promptForAiVideo || ""}
+                        onChange={(e) => handleSceneChange(scene.id, 'promptForAiVideo', e.target.value)}
+                        placeholder="Describe what the AI should generate..."
+                        className="text-input"
+                        style={{ padding: '6px 10px', fontSize: '12px' }}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Grid Inputs */}

@@ -179,8 +179,8 @@ export default function AudioSettings({
   const [previewingTrackId, setPreviewingTrackId] = useState(null);
 
   // Jamendo & Freesound Integration States
-  const [jamendoKey, setJamendoKey] = useState(() => localStorage.getItem('key_jamendo') || "buKd1mh6lsk8tWRegCR5");
-  const [freesoundKey, setFreesoundKey] = useState(() => localStorage.getItem('key_freesound') || "4zEIGYZGflztcGgnsLr9iupFofCfQ8WtCV5gEE99");
+  const [jamendoKey, setJamendoKey] = useState(() => localStorage.getItem('key_jamendo') || "");
+  const [freesoundKey, setFreesoundKey] = useState(() => localStorage.getItem('key_freesound') || "");
   const [bgmSearchMode, setBgmSearchMode] = useState("presets"); // 'presets' | 'jamendo'
   const [jamendoQuery, setJamendoQuery] = useState("");
   const [jamendoResults, setJamendoResults] = useState([]);
