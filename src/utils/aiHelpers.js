@@ -227,35 +227,43 @@ Do not output any markdown formatting, backticks, or other text outside the JSON
       return await response.json();
     };
 
-    let data;
-    try {
-      console.log("Trying claude-sonnet-4-6...");
-      data = await tryModel("claude-sonnet-4-6");
-    } catch (e) {
-      if (e.message && e.message.startsWith("MODEL_NOT_FOUND")) {
-        try {
-          console.log("claude-sonnet-4-6 not found. Retrying with claude-sonnet-4-5-20250929...");
-          data = await tryModel("claude-sonnet-4-5-20250929");
-        } catch (e2) {
-          if (e2.message && e2.message.startsWith("MODEL_NOT_FOUND")) {
-            try {
-              console.log("claude-sonnet-4-5-20250929 not found. Retrying with claude-haiku-4-5-20251001...");
-              data = await tryModel("claude-haiku-4-5-20251001");
-            } catch (e3) {
-              if (e3.message && e3.message.startsWith("MODEL_NOT_FOUND")) {
-                console.log("claude-haiku-4-5-20251001 not found. Retrying with claude-3-5-sonnet-20241022...");
-                data = await tryModel("claude-3-5-sonnet-20241022");
-              } else {
-                throw e3;
-              }
-            }
-          } else {
-            throw e2;
-          }
+    const modelCandidates = [
+      "claude-sonnet-4-6",
+      "claude-sonnet-4-5-20250929",
+      "claude-haiku-4-5-20251001",
+      "claude-3-7-sonnet-latest",
+      "claude-3-7-sonnet-20250219",
+      "claude-3-5-sonnet-latest",
+      "claude-3-5-sonnet-20241022",
+      "claude-3-5-sonnet-20240620",
+      "claude-3-5-haiku-latest",
+      "claude-3-5-haiku-20241022",
+      "claude-3-opus-latest",
+      "claude-3-opus-20240229"
+    ];
+
+    let data = null;
+    let lastError = null;
+
+    for (const modelName of modelCandidates) {
+      try {
+        console.log(`Trying Anthropic model: ${modelName}...`);
+        data = await tryModel(modelName);
+        console.log(`Successfully generated using: ${modelName}`);
+        break; // Success!
+      } catch (err) {
+        lastError = err;
+        if (err.message && err.message.startsWith("MODEL_NOT_FOUND")) {
+          console.warn(`Model not found: ${modelName}. Trying next candidate...`);
+          continue;
         }
-      } else {
-        throw e;
+        // If it is another type of error (auth, rate limits, bad payload), throw it immediately
+        throw err;
       }
+    }
+
+    if (!data) {
+      throw lastError || new Error("All Anthropic Claude model candidates failed to load.");
     }
 
     let resultText = data.content[0].text.trim();
