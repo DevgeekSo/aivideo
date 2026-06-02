@@ -239,8 +239,26 @@ Do not output any markdown formatting, backticks, or other text outside the JSON
               data = await tryModel("claude-haiku-4-5-20251001");
             } catch (e3) {
               if (e3.message && e3.message.startsWith("MODEL_NOT_FOUND")) {
-                console.log("claude-haiku-4-5-20251001 not found. Retrying with claude-3-5-sonnet-20241022...");
-                data = await tryModel("claude-3-5-sonnet-20241022");
+                try {
+                  console.log("claude-haiku-4-5-20251001 not found. Retrying with claude-3-5-sonnet-20241022...");
+                  data = await tryModel("claude-3-5-sonnet-20241022");
+                } catch (e4) {
+                  if (e4.message && e4.message.startsWith("MODEL_NOT_FOUND")) {
+                    try {
+                      console.log("claude-3-5-sonnet-20241022 not found. Retrying with claude-3-5-sonnet-20240620...");
+                      data = await tryModel("claude-3-5-sonnet-20240620");
+                    } catch (e5) {
+                      if (e5.message && e5.message.startsWith("MODEL_NOT_FOUND")) {
+                        console.log("claude-3-5-sonnet-20240620 not found. Retrying with claude-3-haiku-20240307...");
+                        data = await tryModel("claude-3-haiku-20240307");
+                      } else {
+                        throw e5;
+                      }
+                    }
+                  } else {
+                    throw e4;
+                  }
+                }
               } else {
                 throw e3;
               }
