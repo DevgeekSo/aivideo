@@ -29,16 +29,12 @@ const responseSchema = {
           searchKeyword: { type: "STRING", description: "A highly visual search keyword for stock videos, e.g. 'relaxing stream', 'coding code on screen'." },
           videoSource: {
             type: "STRING",
-            enum: ["pexels", "ai-video", "ai-image"],
-            description: "Specify whether to fetch this scene's background from stock (pexels), generate it with AI Video (ai-video), or generate it with AI Image (ai-image). Choose 'ai-image' only if the scene represents a still concept, illustration, graphic, diagram, emblem, logo, or specific visual that works better as a high-quality still image instead of a moving video. Choose 'ai-video' for moving custom scenes."
+            enum: ["pexels", "ai-video"],
+            description: "Specify whether to fetch this scene's background from stock (pexels) or generate it with AI Video (ai-video). Choose 'ai-video' only if the required clip depicts something highly specific, custom-branded, fantastical, or difficult to find in standard stock databases. Otherwise use 'pexels'."
           },
           promptForAiVideo: {
             type: "STRING",
-            description: "If videoSource is 'ai-video', write a highly descriptive visual prompt for the AI video generator, e.g. 'A futuristic 3D keyboard hovering in space with neon electric currents discharging from keys, cinematic lighting, 8k'. If videoSource is not 'ai-video', keep this empty."
-          },
-          promptForAiImage: {
-            type: "STRING",
-            description: "If videoSource is 'ai-image', write a highly descriptive visual prompt for the AI image generator, e.g. 'A futuristic 3D keyboard hovering in space with neon electric currents, digital art, high detail, 8k'. If videoSource is not 'ai-image', keep this empty."
+            description: "If videoSource is 'ai-video', write a highly descriptive visual prompt for the AI video generator, e.g. 'A futuristic 3D keyboard hovering in space with neon electric currents discharging from keys, cinematic lighting, 8k'. If videoSource is 'pexels', keep this empty."
           },
           sfxSearchQuery: {
             type: "STRING",
@@ -109,7 +105,7 @@ CRITICAL RULES:
 7. Assign a transition effect to scenes ('transition' property). Use 'none' (Cut) as default, but use 'cross-dissolve', 'slide-left', or 'zoom-fade' occasionally to make transitions dynamic.
 8. Specify a relevant search query for background music in 'bgmSearchQuery' to match the theme of the video.
 9. If appropriate, specify relevant sound effect queries (e.g. 'whoosh', 'bell ring', 'mouse click') for specific scenes in 'sfxSearchQuery' to highlight camera cuts, transitions, or text pop-ups.
-10. Classify each scene's 'videoSource' as 'pexels', 'ai-video', or 'ai-image'. Choose 'ai-image' only when a still conceptual visual, diagram, emblem, logo, or high-detail illustration makes more sense or works better than a moving video background (e.g. 'a glowing key floating in blue cybernetic code', 'an emblem depicting an absolute zero icon'). If using 'ai-image', supply a detailed text-to-image prompt in 'promptForAiImage'. Choose 'ai-video' for custom action scenes, and 'pexels' for standard realistic B-roll (typing on laptop, walking down a street).`;
+10. Classify each scene's 'videoSource' as 'pexels' or 'ai-video'. Choose 'ai-video' only if the scene requires custom visual details, brand-specific illustrations, fantastical elements, or highly customized action prompts that a stock database will not have (e.g. 'a glowing key floating in blue cybernetic code', 'a developer in medieval knight armor debugging a monitor'). For everyday visual backgrounds (office, streets, typing, nature), use 'pexels'. If using 'ai-video', supply a detailed text-to-video prompt in 'promptForAiVideo'.`;
 
   const callModel = async (modelName) => {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
@@ -227,43 +223,35 @@ Do not output any markdown formatting, backticks, or other text outside the JSON
       return await response.json();
     };
 
-    const modelCandidates = [
-      "claude-sonnet-4-6",
-      "claude-sonnet-4-5-20250929",
-      "claude-haiku-4-5-20251001",
-      "claude-3-7-sonnet-latest",
-      "claude-3-7-sonnet-20250219",
-      "claude-3-5-sonnet-latest",
-      "claude-3-5-sonnet-20241022",
-      "claude-3-5-sonnet-20240620",
-      "claude-3-5-haiku-latest",
-      "claude-3-5-haiku-20241022",
-      "claude-3-opus-latest",
-      "claude-3-opus-20240229"
-    ];
-
-    let data = null;
-    let lastError = null;
-
-    for (const modelName of modelCandidates) {
-      try {
-        console.log(`Trying Anthropic model: ${modelName}...`);
-        data = await tryModel(modelName);
-        console.log(`Successfully generated using: ${modelName}`);
-        break; // Success!
-      } catch (err) {
-        lastError = err;
-        if (err.message && err.message.startsWith("MODEL_NOT_FOUND")) {
-          console.warn(`Model not found: ${modelName}. Trying next candidate...`);
-          continue;
+    let data;
+    try {
+      console.log("Trying claude-sonnet-4-6...");
+      data = await tryModel("claude-sonnet-4-6");
+    } catch (e) {
+      if (e.message && e.message.startsWith("MODEL_NOT_FOUND")) {
+        try {
+          console.log("claude-sonnet-4-6 not found. Retrying with claude-sonnet-4-5-20250929...");
+          data = await tryModel("claude-sonnet-4-5-20250929");
+        } catch (e2) {
+          if (e2.message && e2.message.startsWith("MODEL_NOT_FOUND")) {
+            try {
+              console.log("claude-sonnet-4-5-20250929 not found. Retrying with claude-haiku-4-5-20251001...");
+              data = await tryModel("claude-haiku-4-5-20251001");
+            } catch (e3) {
+              if (e3.message && e3.message.startsWith("MODEL_NOT_FOUND")) {
+                console.log("claude-haiku-4-5-20251001 not found. Retrying with claude-3-5-sonnet-20241022...");
+                data = await tryModel("claude-3-5-sonnet-20241022");
+              } else {
+                throw e3;
+              }
+            }
+          } else {
+            throw e2;
+          }
         }
-        // If it is another type of error (auth, rate limits, bad payload), throw it immediately
-        throw err;
+      } else {
+        throw e;
       }
-    }
-
-    if (!data) {
-      throw lastError || new Error("All Anthropic Claude model candidates failed to load.");
     }
 
     let resultText = data.content[0].text.trim();

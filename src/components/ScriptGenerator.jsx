@@ -55,10 +55,6 @@ export default function ScriptGenerator({
   const [aiVideoCustomPayload, setAiVideoCustomPayload] = useState(() => localStorage.getItem('key_aivideo_custom_payload') || '{\n  "prompt": "{{prompt}}",\n  "aspect_ratio": "9:16"\n}');
   const [aiVideoCustomPath, setAiVideoCustomPath] = useState(() => localStorage.getItem('key_aivideo_custom_path') || 'video.url');
 
-  // Cloudflare keys states
-  const [cloudflareAccountId, setCloudflareAccountId] = useState(() => localStorage.getItem('key_cloudflare_account_id') || "");
-  const [cloudflareApiToken, setCloudflareApiToken] = useState(() => localStorage.getItem('key_cloudflare_api_token') || "");
-
   // Sync keys to local storage on change
   useEffect(() => {
     localStorage.setItem('key_gemini', geminiKey);
@@ -104,14 +100,6 @@ export default function ScriptGenerator({
     localStorage.setItem('key_aivideo_custom_path', aiVideoCustomPath);
   }, [aiVideoCustomPath]);
 
-  useEffect(() => {
-    localStorage.setItem('key_cloudflare_account_id', cloudflareAccountId);
-  }, [cloudflareAccountId]);
-
-  useEffect(() => {
-    localStorage.setItem('key_cloudflare_api_token', cloudflareApiToken);
-  }, [cloudflareApiToken]);
-
   // Ensure local storage is initialized with these defaults on load
   useEffect(() => {
     if (!localStorage.getItem('key_gemini')) {
@@ -156,9 +144,7 @@ export default function ScriptGenerator({
         aiVideoCustomUrl,
         aiVideoCustomHeaders,
         aiVideoCustomPayload,
-        aiVideoCustomPath,
-        cloudflareAccountId,
-        cloudflareApiToken
+        aiVideoCustomPath
       }, data);
     } catch (e) {
       alert("Error generating script: " + e.message);
@@ -299,34 +285,6 @@ export default function ScriptGenerator({
                 placeholder="Pexels API key..."
                 value={pexelsKey}
                 onChange={(e) => setPexelsKey(e.target.value)}
-                className="text-input"
-                style={{ padding: '6px 10px', fontSize: '12px' }}
-              />
-            </div>
-
-            {/* Cloudflare AI Image Settings Section */}
-            <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)', margin: '12px 0 8px 0' }}></div>
-            <label className="input-label" style={{ fontSize: '9px', color: 'var(--color-primary)', fontWeight: 'bold', letterSpacing: '0.5px' }}>Cloudflare AI Image Settings</label>
-            
-            <div className="form-group">
-              <label className="input-label" style={{ fontSize: '10px' }}>Cloudflare Account ID</label>
-              <input
-                type="text"
-                placeholder="32-character hex ID..."
-                value={cloudflareAccountId}
-                onChange={(e) => setCloudflareAccountId(e.target.value)}
-                className="text-input"
-                style={{ padding: '6px 10px', fontSize: '12px' }}
-              />
-            </div>
-            
-            <div className="form-group">
-              <label className="input-label" style={{ fontSize: '10px' }}>Cloudflare API Token</label>
-              <input
-                type="password"
-                placeholder="cfut_..."
-                value={cloudflareApiToken}
-                onChange={(e) => setCloudflareApiToken(e.target.value)}
                 className="text-input"
                 style={{ padding: '6px 10px', fontSize: '12px' }}
               />
@@ -559,7 +517,7 @@ export default function ScriptGenerator({
                   />
                 </div>
 
-                {/* Visual Source (Pexels vs AI Video vs AI Image) */}
+                {/* Visual Source (Pexels vs AI Video) */}
                 <div className="card-grid-2" style={{ marginTop: '8px', marginBottom: '4px' }}>
                   <div className="form-group">
                     <label className="input-label" style={{ fontSize: '10px' }}>Visual Source</label>
@@ -571,16 +529,12 @@ export default function ScriptGenerator({
                         if (val === 'ai-video' && !scene.promptForAiVideo) {
                           handleSceneChange(scene.id, 'promptForAiVideo', `A clean cinematic short clip showing ${scene.searchKeyword || scene.text || 'abstract art'}, 4k, realistic`);
                         }
-                        if (val === 'ai-image' && !scene.promptForAiImage) {
-                          handleSceneChange(scene.id, 'promptForAiImage', `A beautiful digital illustration showing ${scene.searchKeyword || scene.text || 'abstract art'}, high-detail, 8k`);
-                        }
                       }}
                       className="select-input"
                       style={{ padding: '6px 10px', fontSize: '12px' }}
                     >
                       <option value="pexels">Stock Footage (Pexels)</option>
                       <option value="ai-video">AI Video Generator</option>
-                      <option value="ai-image">Cloudflare AI Image</option>
                     </select>
                   </div>
 
@@ -592,20 +546,6 @@ export default function ScriptGenerator({
                         value={scene.promptForAiVideo || ""}
                         onChange={(e) => handleSceneChange(scene.id, 'promptForAiVideo', e.target.value)}
                         placeholder="Describe what the AI should generate..."
-                        className="text-input"
-                        style={{ padding: '6px 10px', fontSize: '12px' }}
-                      />
-                    </div>
-                  )}
-
-                  {scene.videoSource === 'ai-image' && (
-                    <div className="form-group">
-                      <label className="input-label" style={{ fontSize: '10px' }}>AI Image Prompt</label>
-                      <input
-                        type="text"
-                        value={scene.promptForAiImage || ""}
-                        onChange={(e) => handleSceneChange(scene.id, 'promptForAiImage', e.target.value)}
-                        placeholder="Describe the image to generate..."
                         className="text-input"
                         style={{ padding: '6px 10px', fontSize: '12px' }}
                       />
