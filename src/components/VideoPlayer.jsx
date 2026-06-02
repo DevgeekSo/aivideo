@@ -20,6 +20,7 @@ export default function VideoPlayer({
 }) {
   const canvasRef = useRef(null);
   const hiddenVideoPool = useRef({}); // stores HTMLVideoElements for each scene
+  const hiddenImagePool = useRef({}); // stores HTMLImageElements for each scene
   const animationFrameRef = useRef(null);
   const lastTimeRef = useRef(0);
   const audioSourceNodeRef = useRef(null);
@@ -28,8 +29,9 @@ export default function VideoPlayer({
   const audioCtxRef = useRef(null);
   const sfxSourceNodesRef = useRef([]);
   
-  // Track loaded video elements to avoid flicker
+  // Track loaded elements to avoid flicker
   const [videoLoadedStates, setVideoLoadedStates] = useState({});
+  const [imageLoadedStates, setImageLoadedStates] = useState({});
   const [timelineDuration, setTimelineDuration] = useState(10);
 
   // Sync timeline duration with the sum of scenes durations
@@ -44,7 +46,41 @@ export default function VideoPlayer({
   useEffect(() => {
     scenes.forEach(scene => {
       const videoUrl = selectedVideos[scene.id];
-      if (videoUrl && !hiddenVideoPool.current[scene.id]) {
+      if (videoUrl && scene.videoSource === 'ai-image') {
+        if (!hiddenImagePool.current[scene.id]) {
+          const img = new Image();
+          img.src = videoUrl;
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            console.log(`Image loaded successfully for scene ${scene.id}: ${videoUrl}`);
+            setImageLoadedStates(prev => ({ ...prev, [scene.id]: true }));
+          };
+          img.onerror = () => {
+            console.warn(`Image load failed for scene ${scene.id} with crossOrigin, retrying without it...`);
+            if (img.crossOrigin) {
+              img.removeAttribute('crossorigin');
+              img.src = videoUrl;
+            }
+          };
+          hiddenImagePool.current[scene.id] = img;
+        } else if (hiddenImagePool.current[scene.id].src !== videoUrl) {
+          const img = hiddenImagePool.current[scene.id];
+          img.crossOrigin = 'anonymous';
+          img.src = videoUrl;
+          setImageLoadedStates(prev => ({ ...prev, [scene.id]: false }));
+          img.onload = () => {
+            console.log(`Updated image loaded successfully for scene ${scene.id}: ${videoUrl}`);
+            setImageLoadedStates(prev => ({ ...prev, [scene.id]: true }));
+          };
+          img.onerror = () => {
+            console.warn(`Updated image load failed for scene ${scene.id} with crossOrigin, retrying without it...`);
+            if (img.crossOrigin) {
+              img.removeAttribute('crossorigin');
+              img.src = videoUrl;
+            }
+          };
+        }
+      } else if (videoUrl && !hiddenVideoPool.current[scene.id]) {
         const video = document.createElement('video');
         video.src = videoUrl;
         video.crossOrigin = 'anonymous';
@@ -99,6 +135,12 @@ export default function VideoPlayer({
           hiddenVideoPool.current[id].pause();
           hiddenVideoPool.current[id].src = "";
           delete hiddenVideoPool.current[id];
+        }
+      });
+      Object.keys(hiddenImagePool.current).forEach(id => {
+        if (!activeIds.includes(id)) {
+          hiddenImagePool.current[id].src = "";
+          delete hiddenImagePool.current[id];
         }
       });
     };
@@ -472,8 +514,9 @@ export default function VideoPlayer({
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, W, H);
 
-    const upperVideo = scene ? hiddenVideoPool.current[scene.id] : null;
-    const isUpperLoaded = scene ? videoLoadedStates[scene.id] : false;
+    const isImage = scene?.videoSource === 'ai-image';
+    const media = scene ? (isImage ? hiddenImagePool.current[scene.id] : hiddenVideoPool.current[scene.id]) : null;
+    const isLoaded = scene ? (isImage ? imageLoadedStates[scene.id] : videoLoadedStates[scene.id]) : false;
 
     // Draw Subject A (Top Half)
     ctx.save();
@@ -481,8 +524,12 @@ export default function VideoPlayer({
     ctx.rect(0, 0, W, splitHeight);
     ctx.clip();
     
-    if (isSpeakerA && upperVideo && isUpperLoaded) {
-      drawCroppedVideo(ctx, upperVideo, 0, 0, W, splitHeight);
+    if (isSpeakerA && media && isLoaded) {
+      if (isImage) {
+        drawCroppedImage(ctx, media, 0, 0, W, splitHeight);
+      } else {
+        drawCroppedVideo(ctx, media, 0, 0, W, splitHeight);
+      }
     } else {
       drawAvatar(ctx, W / 2, splitHeight - 120, 'A', isSpeakerA, sceneElapsed, timestamp);
     }
@@ -494,8 +541,12 @@ export default function VideoPlayer({
     ctx.rect(0, H / 2, W, splitHeight);
     ctx.clip();
     
-    if (!isSpeakerA && upperVideo && isUpperLoaded) {
-      drawCroppedVideo(ctx, upperVideo, 0, H / 2, W, splitHeight);
+    if (!isSpeakerA && media && isLoaded) {
+      if (isImage) {
+        drawCroppedImage(ctx, media, 0, H / 2, W, splitHeight);
+      } else {
+        drawCroppedVideo(ctx, media, 0, H / 2, W, splitHeight);
+      }
     } else {
       drawAvatar(ctx, W / 2, H - 120, 'B', !isSpeakerA, sceneElapsed, timestamp);
     }
@@ -508,17 +559,22 @@ export default function VideoPlayer({
 
   // PROFILE 2: FACELESS ATMOSPHERIC PROFILE
   const renderFaceless = (ctx, W, H, scene, pct) => {
-    const video = scene ? hiddenVideoPool.current[scene.id] : null;
-    const isLoaded = scene ? videoLoadedStates[scene.id] : false;
+    const isImage = scene?.videoSource === 'ai-image';
+    const media = scene ? (isImage ? hiddenImagePool.current[scene.id] : hiddenVideoPool.current[scene.id]) : null;
+    const isLoaded = scene ? (isImage ? imageLoadedStates[scene.id] : videoLoadedStates[scene.id]) : false;
 
-    if (video && isLoaded) {
+    if (media && isLoaded) {
       const scale = 1.0 + (pct * 0.05); // 105% slow-zoom panning
       
       ctx.save();
       ctx.translate(W / 2, H / 2);
       ctx.scale(scale, scale);
       ctx.translate(-W / 2, -H / 2);
-      drawCroppedVideo(ctx, video, 0, 0, W, H);
+      if (isImage) {
+        drawCroppedImage(ctx, media, 0, 0, W, H);
+      } else {
+        drawCroppedVideo(ctx, media, 0, 0, W, H);
+      }
       ctx.restore();
     } else {
       ctx.fillStyle = '#0f172a';
@@ -548,11 +604,16 @@ export default function VideoPlayer({
     ctx.scale(baseScale, baseScale);
     ctx.translate(-W / 2, -H / 2);
 
-    const video = scene ? hiddenVideoPool.current[scene.id] : null;
-    const isLoaded = scene ? videoLoadedStates[scene.id] : false;
+    const isImage = scene?.videoSource === 'ai-image';
+    const media = scene ? (isImage ? hiddenImagePool.current[scene.id] : hiddenVideoPool.current[scene.id]) : null;
+    const isLoaded = scene ? (isImage ? imageLoadedStates[scene.id] : videoLoadedStates[scene.id]) : false;
 
-    if (video && isLoaded) {
-      drawCroppedVideo(ctx, video, 0, 0, W, H);
+    if (media && isLoaded) {
+      if (isImage) {
+        drawCroppedImage(ctx, media, 0, 0, W, H);
+      } else {
+        drawCroppedVideo(ctx, media, 0, 0, W, H);
+      }
     } else {
       ctx.fillStyle = '#1e1b4b';
       ctx.fillRect(0, 0, W, H);
@@ -799,6 +860,34 @@ export default function VideoPlayer({
       ctx.drawImage(video, sx, sy, sw, sh, rx, ry, rw, rh);
     } catch (e) {
       console.warn("Video drawing error", e);
+    }
+  };
+
+  const drawCroppedImage = (ctx, img, rx, ry, rw, rh) => {
+    try {
+      const imgWidth = img.width;
+      const imgHeight = img.height;
+      if (!imgWidth || !imgHeight) return;
+
+      const imgAspect = imgWidth / imgHeight;
+      const rAspect = rw / rh;
+
+      let sx, sy, sw, sh;
+      if (imgAspect > rAspect) {
+        sh = imgHeight;
+        sw = sh * rAspect;
+        sx = (imgWidth - sw) / 2;
+        sy = 0;
+      } else {
+        sw = imgWidth;
+        sh = sw / rAspect;
+        sx = 0;
+        sy = (imgHeight - sh) / 2;
+      }
+
+      ctx.drawImage(img, sx, sy, sw, sh, rx, ry, rw, rh);
+    } catch (e) {
+      console.warn("Image drawing error", e);
     }
   };
 

@@ -22,6 +22,7 @@ import ExportPanel from './components/ExportPanel';
 import { estimateSubtitleTimestamps } from './utils/speechEngine';
 import { searchStockVideos } from './utils/pexelsApi';
 import { generateAiVideo } from './utils/aiVideoApi';
+import { generateCloudflareImage } from './utils/cloudflareImageApi';
 
 export default function App() {
   // Active Sidebar Tab: 'script' | 'videos' | 'audio' | 'subtitles' | 'export'
@@ -85,7 +86,9 @@ export default function App() {
     aiVideoCustomUrl: localStorage.getItem('key_aivideo_custom_url') || '',
     aiVideoCustomHeaders: localStorage.getItem('key_aivideo_custom_headers') || '{\n  "Content-Type": "application/json"\n}',
     aiVideoCustomPayload: localStorage.getItem('key_aivideo_custom_payload') || '{\n  "prompt": "{{prompt}}",\n  "aspect_ratio": "9:16"\n}',
-    aiVideoCustomPath: localStorage.getItem('key_aivideo_custom_path') || 'video.url'
+    aiVideoCustomPath: localStorage.getItem('key_aivideo_custom_path') || 'video.url',
+    cloudflareAccountId: localStorage.getItem('key_cloudflare_account_id') || '',
+    cloudflareApiToken: localStorage.getItem('key_cloudflare_api_token') || ''
   });
 
   // Background Auto-Pick states
@@ -106,7 +109,18 @@ export default function App() {
         
         let videoUrl = null;
 
-        if (scene.videoSource === 'ai-video') {
+        if (scene.videoSource === 'ai-image') {
+          setAutoPickProgress(`Scene ${i + 1}/${targetScenes.length} (AI Image): Generating on Cloudflare...`);
+          try {
+            const prompt = scene.promptForAiImage || `A beautiful image showing ${scene.searchKeyword}`;
+            videoUrl = await generateCloudflareImage(prompt, {
+              accountId: keys.cloudflareAccountId || '',
+              apiToken: keys.cloudflareApiToken || ''
+            });
+          } catch (aiErr) {
+            console.error(`AI Image Gen failed for scene ${scene.id}, falling back to stock search:`, aiErr);
+          }
+        } else if (scene.videoSource === 'ai-video') {
           setAutoPickProgress(`Scene ${i + 1}/${targetScenes.length} (AI Video): Submitting prompt...`);
           try {
             const prompt = scene.promptForAiVideo || `A beautiful video showing ${scene.searchKeyword}`;
@@ -316,7 +330,9 @@ export default function App() {
         aiVideoCustomUrl: localStorage.getItem('key_aivideo_custom_url') || '',
         aiVideoCustomHeaders: localStorage.getItem('key_aivideo_custom_headers') || '{\n  "Content-Type": "application/json"\n}',
         aiVideoCustomPayload: localStorage.getItem('key_aivideo_custom_payload') || '{\n  "prompt": "{{prompt}}",\n  "aspect_ratio": "9:16"\n}',
-        aiVideoCustomPath: localStorage.getItem('key_aivideo_custom_path') || 'video.url'
+        aiVideoCustomPath: localStorage.getItem('key_aivideo_custom_path') || 'video.url',
+        cloudflareAccountId: localStorage.getItem('key_cloudflare_account_id') || '',
+        cloudflareApiToken: localStorage.getItem('key_cloudflare_api_token') || ''
       });
     };
     window.addEventListener('storage', handleStorageChange);
