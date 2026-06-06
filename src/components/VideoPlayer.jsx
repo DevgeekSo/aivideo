@@ -28,6 +28,16 @@ export default function VideoPlayer({
   const audioCtxRef = useRef(null);
   const sfxSourceNodesRef = useRef([]);
   
+  // Sync Refs for high-performance canvas loop and Web Audio timing sync
+  const currentTimeRef = useRef(0);
+  const audioStartTimeRef = useRef(0);
+  const audioStartOffsetRef = useRef(0);
+
+  // Sync prop/state currentTime with ref when it changes externally
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
   // Track loaded video elements to avoid flicker
   const [videoLoadedStates, setVideoLoadedStates] = useState({});
   const [timelineDuration, setTimelineDuration] = useState(10);
@@ -40,54 +50,111 @@ export default function VideoPlayer({
     }
   }, [scenes]);
 
-  // Create video elements for each scene
+  // Create media elements (video or image) for each scene
   useEffect(() => {
+    const isImage = (url) => {
+      if (!url) return false;
+      return /\.(jpeg|jpg|gif|png|webp|bmp|svg)(?:\?.*)?$/i.test(url) || url.startsWith('data:image/') || url.startsWith('blob:');
+    };
+
     scenes.forEach(scene => {
       const videoUrl = selectedVideos[scene.id];
       if (videoUrl && !hiddenVideoPool.current[scene.id]) {
-        const video = document.createElement('video');
-        video.src = videoUrl;
-        video.crossOrigin = 'anonymous';
-        video.loop = true;
-        video.muted = true;
-        video.playsInline = true;
-        
-        video.onloadeddata = () => {
-          console.log(`Video loaded successfully for scene ${scene.id}: ${videoUrl}`);
-          setVideoLoadedStates(prev => ({ ...prev, [scene.id]: true }));
-        };
+        if (isImage(videoUrl)) {
+          const img = new Image();
+          img.src = videoUrl;
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            console.log(`Image loaded successfully for scene ${scene.id}: ${videoUrl}`);
+            setVideoLoadedStates(prev => ({ ...prev, [scene.id]: true }));
+          };
+          img.onerror = (e) => {
+            console.warn(`Image load failed for scene ${scene.id} with crossOrigin, retrying without it...`, e);
+            if (img.crossOrigin) {
+              img.removeAttribute('crossorigin');
+              img.src = videoUrl;
+            }
+          };
+          hiddenVideoPool.current[scene.id] = img;
+        } else {
+          const video = document.createElement('video');
+          video.src = videoUrl;
+          video.crossOrigin = 'anonymous';
+          video.loop = true;
+          video.muted = true;
+          video.playsInline = true;
+          
+          video.onloadeddata = () => {
+            console.log(`Video loaded successfully for scene ${scene.id}: ${videoUrl}`);
+            setVideoLoadedStates(prev => ({ ...prev, [scene.id]: true }));
+          };
 
-        video.onerror = (e) => {
-          console.warn(`Video load failed for scene ${scene.id} with crossOrigin, retrying without it...`, e);
-          if (video.crossOrigin) {
-            video.removeAttribute('crossorigin');
-            video.load();
+          video.onerror = (e) => {
+            console.warn(`Video load failed for scene ${scene.id} with crossOrigin, retrying without it...`, e);
+            if (video.crossOrigin) {
+              video.removeAttribute('crossorigin');
+              video.load();
+            }
+          };
+
+          video.load();
+          hiddenVideoPool.current[scene.id] = video;
+        }
+      } else if (videoUrl && hiddenVideoPool.current[scene.id]) {
+        const oldElem = hiddenVideoPool.current[scene.id];
+        const wasImage = oldElem instanceof HTMLImageElement;
+        const isNowImage = isImage(videoUrl);
+
+        if (wasImage !== isNowImage || oldElem.src !== videoUrl) {
+          if (wasImage && isNowImage) {
+            // Both images, just update src
+            oldElem.crossOrigin = 'anonymous';
+            oldElem.src = videoUrl;
+            setVideoLoadedStates(prev => ({ ...prev, [scene.id]: false }));
+          } else if (!wasImage && !isNowImage) {
+            // Both videos, just update src
+            oldElem.crossOrigin = 'anonymous';
+            oldElem.src = videoUrl;
+            oldElem.load();
+            setVideoLoadedStates(prev => ({ ...prev, [scene.id]: false }));
+          } else {
+            // Type mismatch! Recreate.
+            if (oldElem.pause) oldElem.pause();
+            oldElem.src = "";
+            delete hiddenVideoPool.current[scene.id];
+            
+            if (isNowImage) {
+              const img = new Image();
+              img.src = videoUrl;
+              img.crossOrigin = 'anonymous';
+              img.onload = () => {
+                setVideoLoadedStates(prev => ({ ...prev, [scene.id]: true }));
+              };
+              img.onerror = () => {
+                img.removeAttribute('crossorigin');
+                img.src = videoUrl;
+              };
+              hiddenVideoPool.current[scene.id] = img;
+            } else {
+              const video = document.createElement('video');
+              video.src = videoUrl;
+              video.crossOrigin = 'anonymous';
+              video.loop = true;
+              video.muted = true;
+              video.playsInline = true;
+              video.onloadeddata = () => {
+                setVideoLoadedStates(prev => ({ ...prev, [scene.id]: true }));
+              };
+              video.onerror = () => {
+                video.removeAttribute('crossorigin');
+                video.load();
+              };
+              video.load();
+              hiddenVideoPool.current[scene.id] = video;
+            }
+            setVideoLoadedStates(prev => ({ ...prev, [scene.id]: false }));
           }
-        };
-
-        video.load();
-        hiddenVideoPool.current[scene.id] = video;
-      } else if (videoUrl && hiddenVideoPool.current[scene.id] && hiddenVideoPool.current[scene.id].src !== videoUrl) {
-        // Source updated
-        const video = hiddenVideoPool.current[scene.id];
-        video.crossOrigin = 'anonymous';
-        video.src = videoUrl;
-        
-        video.onloadeddata = () => {
-          console.log(`Updated video loaded successfully for scene ${scene.id}: ${videoUrl}`);
-          setVideoLoadedStates(prev => ({ ...prev, [scene.id]: true }));
-        };
-
-        video.onerror = (e) => {
-          console.warn(`Updated video load failed for scene ${scene.id} with crossOrigin, retrying without it...`, e);
-          if (video.crossOrigin) {
-            video.removeAttribute('crossorigin');
-            video.load();
-          }
-        };
-
-        video.load();
-        setVideoLoadedStates(prev => ({ ...prev, [scene.id]: false }));
+        }
       }
     });
 
@@ -96,8 +163,9 @@ export default function VideoPlayer({
       const activeIds = scenes.map(s => s.id);
       Object.keys(hiddenVideoPool.current).forEach(id => {
         if (!activeIds.includes(id)) {
-          hiddenVideoPool.current[id].pause();
-          hiddenVideoPool.current[id].src = "";
+          const media = hiddenVideoPool.current[id];
+          if (media.pause) media.pause();
+          media.src = "";
           delete hiddenVideoPool.current[id];
         }
       });
@@ -146,8 +214,11 @@ export default function VideoPlayer({
         const source = ctx.createBufferSource();
         source.buffer = voiceoverBuffer;
         source.connect(ctx.destination);
-        source.start(0, currentTime);
+        source.start(0, currentTimeRef.current);
         audioSourceNodeRef.current = source;
+        
+        audioStartTimeRef.current = ctx.currentTime;
+        audioStartOffsetRef.current = currentTimeRef.current;
       }
 
       // Background Music (BGM)
@@ -162,24 +233,61 @@ export default function VideoPlayer({
         bgmSource.connect(bgmGain);
         bgmGain.connect(ctx.destination);
         
-        const offset = bgmBuffer.duration > 0 ? currentTime % bgmBuffer.duration : 0;
+        const offset = bgmBuffer.duration > 0 ? currentTimeRef.current % bgmBuffer.duration : 0;
         bgmSource.start(0, offset);
         
         bgmSourceNodeRef.current = bgmSource;
         bgmGainNodeRef.current = bgmGain;
+
+        if (!voiceoverBuffer) {
+          audioStartTimeRef.current = ctx.currentTime;
+          audioStartOffsetRef.current = currentTimeRef.current;
+        }
       }
 
       // Sound Effects (SFX)
+      const SFX_VOLUME = 0.2; // Decreased volume to prevent annoyance
       scenes.forEach(scene => {
         if (scene.sfxUrl) {
           const sfxBuffer = sfxBuffers[scene.sfxUrl];
           if (sfxBuffer) {
             const sceneStart = scenes.slice(0, scenes.indexOf(scene)).reduce((sum, s) => sum + (s.duration || 3), 0);
-            if (sceneStart >= currentTime) {
+            const sceneDuration = scene.duration || 3;
+            const sceneEnd = sceneStart + sceneDuration;
+            const currentPlaybackTime = currentTimeRef.current;
+
+            let playStartDelay = 0;
+            let playOffset = 0;
+            let playDuration = 0;
+            let shouldPlay = false;
+
+            if (sceneStart >= currentPlaybackTime) {
+              // Future scene SFX
+              playStartDelay = sceneStart - currentPlaybackTime;
+              playOffset = 0;
+              playDuration = sceneDuration;
+              shouldPlay = true;
+            } else if (currentPlaybackTime < sceneEnd) {
+              // Active scene SFX (started playing from middle of scene)
+              playStartDelay = 0;
+              playOffset = currentPlaybackTime - sceneStart;
+              playDuration = sceneEnd - currentPlaybackTime;
+              shouldPlay = playOffset < sfxBuffer.duration;
+            }
+
+            if (shouldPlay) {
               const source = ctx.createBufferSource();
               source.buffer = sfxBuffer;
-              source.connect(ctx.destination);
-              source.start(ctx.currentTime + (sceneStart - currentTime));
+              
+              // Lower SFX volume using a GainNode
+              const sfxGain = ctx.createGain();
+              sfxGain.gain.setValueAtTime(SFX_VOLUME, ctx.currentTime);
+              
+              source.connect(sfxGain);
+              sfxGain.connect(ctx.destination);
+              
+              // Play only for the duration of this scene
+              source.start(ctx.currentTime + playStartDelay, playOffset, playDuration);
               sfxSourceNodesRef.current.push(source);
             }
           }
@@ -241,23 +349,33 @@ export default function VideoPlayer({
     const render = (timestamp) => {
       // Manage playing clock if active
       if (isPlaying) {
-        const delta = (timestamp - lastTimeRef.current) / 1000;
-        lastTimeRef.current = timestamp;
-        
-        // Use raw delta for perfect wall-clock sync with audio.
-        // Only skip if delta is invalid (negative) or absurdly large (tab was backgrounded > 500ms).
-        if (delta > 0 && delta < 0.5) {
-          setCurrentTime(prev => {
-            const next = prev + delta;
-            if (next >= timelineDuration) {
-              setIsPlaying(false);
-              stopAudioBuffer();
-              return 0;
-            }
-            return next;
-          });
+        let time;
+        if (audioCtxRef.current && (audioSourceNodeRef.current || bgmSourceNodeRef.current)) {
+          // Precise Web Audio hardware clock synchronization
+          time = audioStartOffsetRef.current + (audioCtxRef.current.currentTime - audioStartTimeRef.current);
+        } else {
+          // Fallback to requestAnimationFrame delta if no active audio context buffer is playing
+          const delta = (timestamp - lastTimeRef.current) / 1000;
+          time = currentTimeRef.current + (delta > 0 && delta < 0.5 ? delta : 0);
         }
+        
+        lastTimeRef.current = timestamp;
+
+        if (time >= timelineDuration) {
+          setIsPlaying(false);
+          stopAudioBuffer();
+          currentTimeRef.current = 0;
+          setCurrentTime(0);
+        } else {
+          currentTimeRef.current = time;
+          // Smoothly update UI timeline slider state without breaking rAF loop recreation
+          setCurrentTime(time);
+        }
+      } else {
+        lastTimeRef.current = timestamp;
       }
+
+      const drawTime = currentTimeRef.current;
 
       // Clear Canvas
       ctx.fillStyle = '#060913';
@@ -270,7 +388,7 @@ export default function VideoPlayer({
       
       for (let i = 0; i < scenes.length; i++) {
         const s = scenes[i];
-        if (currentTime >= elapsed && currentTime < elapsed + (s.duration || 3)) {
+        if (drawTime >= elapsed && drawTime < elapsed + (s.duration || 3)) {
           currentScene = s;
           activeIndex = i;
           break;
@@ -285,7 +403,7 @@ export default function VideoPlayer({
       }
 
       const sceneStartOffset = scenes.slice(0, activeIndex).reduce((sum, s) => sum + (s.duration || 3), 0);
-      const sceneElapsed = currentScene ? (currentTime - sceneStartOffset) : 0;
+      const sceneElapsed = currentScene ? (drawTime - sceneStartOffset) : 0;
       const scenePct = currentScene ? (sceneElapsed / currentScene.duration) : 0;
 
       // Transition check
@@ -300,7 +418,7 @@ export default function VideoPlayer({
       // Sync HTMLVideoElements in the hidden pool with the playback state and clock
       scenes.forEach((s) => {
         const video = hiddenVideoPool.current[s.id];
-        if (video) {
+        if (video && video.tagName === 'VIDEO') {
           const isCurrent = currentScene && s.id === currentScene.id;
           const isTransitionActive = isTransitioning && prevScene && s.id === prevScene.id;
 
@@ -310,6 +428,13 @@ export default function VideoPlayer({
               if (video.paused) {
                 video.play().catch(err => console.warn("Video playback start failed:", err));
               }
+              // Sync video time to prevent drift during playback
+              const duration = video.duration || 3;
+              const elapsedVal = isCurrent ? sceneElapsed : prevSceneElapsed;
+              const targetVideoTime = isNaN(duration) ? 0 : (elapsedVal % duration);
+              if (Math.abs(video.currentTime - targetVideoTime) > 0.15) {
+                video.currentTime = targetVideoTime;
+              }
             } else {
               // Paused state
               if (!video.paused) {
@@ -318,7 +443,7 @@ export default function VideoPlayer({
               const duration = video.duration || 3;
               const elapsedVal = isCurrent ? sceneElapsed : prevSceneElapsed;
               const targetVideoTime = isNaN(duration) ? 0 : (elapsedVal % duration);
-              if (Math.abs(video.currentTime - targetVideoTime) > 0.1) {
+              if (Math.abs(video.currentTime - targetVideoTime) > 0.05) {
                 video.currentTime = targetVideoTime;
               }
             }
@@ -445,7 +570,7 @@ export default function VideoPlayer({
 
       // Draw Karaoke Subtitles (always centered, complying with safe zones)
       if (currentScene) {
-        drawSubtitles(ctx, W, H, currentScene, currentTime);
+        drawSubtitles(ctx, W, H, currentScene, drawTime);
       }
 
       // Draw Safe Zone lines if requested
@@ -461,7 +586,7 @@ export default function VideoPlayer({
     return () => {
       cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [isPlaying, currentTime, videoProfile, scenes, selectedVideos, subtitleSettings, showSafeZone, timelineDuration]);
+  }, [isPlaying, videoProfile, scenes, selectedVideos, subtitleSettings, showSafeZone, timelineDuration]);
 
   // PROFILE 1: SPLIT SCREEN DIALOGUE LAYOUT
   const renderSplitScreen = (ctx, W, H, scene, sceneElapsed, timestamp) => {
@@ -635,11 +760,11 @@ export default function VideoPlayer({
     wrapText(ctx, content.body || "", cardX + 25, slideY + 105, cardW - 50, 24);
   };
 
-  // SUBTITLE KARAOKE ENGINE
+  // SUBTITLE KARAOKE ENGINE WITH AUTOMATIC WORD-WRAP AND CENTERING
   const drawSubtitles = (ctx, W, H, scene, time) => {
     if (!scene || !scene.text) return;
 
-    const safeW = W * 0.8; // 75% to 85% width constraint
+    const safeW = W * 0.85; // safe width limit for text to prevent edge clipping
     const subY = H * (subtitleSettings.verticalPos !== undefined ? subtitleSettings.verticalPos : 0.68); // avoids top 15% and bottom 25% interactive trays
 
     ctx.save();
@@ -675,6 +800,7 @@ export default function VideoPlayer({
       wordsToShow = words;
     }
 
+    // CASE 1: No word timing metadata (fallback raw text rendering with wrap)
     if (wordsToShow.length === 0) {
       let rawText = scene.text;
       if (scene.text2) {
@@ -688,21 +814,47 @@ export default function VideoPlayer({
       ctx.font = `800 ${fontSize}px ${fontFamily}`;
       ctx.textAlign = 'center';
       
-      if (strokeWidth > 0 && strokeColor !== 'transparent' && strokeColor !== 'none') {
-        ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = strokeWidth;
-        ctx.lineJoin = 'round';
-        ctx.strokeText(rawText, W / 2, subY);
+      // Calculate wrap lines
+      const rawWords = rawText.split(' ');
+      const rawLines = [];
+      let currentLineText = '';
+      
+      rawWords.forEach(w => {
+        const testLine = currentLineText ? `${currentLineText} ${w}` : w;
+        const testWidth = ctx.measureText(testLine).width;
+        if (testWidth > safeW && currentLineText) {
+          rawLines.push(currentLineText);
+          currentLineText = w;
+        } else {
+          currentLineText = testLine;
+        }
+      });
+      if (currentLineText) {
+        rawLines.push(currentLineText);
       }
       
-      ctx.fillText(rawText, W / 2, subY);
+      const lineHeight = fontSize * 1.25;
+      const totalHeight = rawLines.length * lineHeight;
+      let startY = subY - (totalHeight / 2) + (lineHeight / 2);
+      
+      rawLines.forEach(lineText => {
+        if (strokeWidth > 0 && strokeColor !== 'transparent' && strokeColor !== 'none') {
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = strokeWidth;
+          ctx.lineJoin = 'round';
+          ctx.strokeText(lineText, W / 2, startY);
+        }
+        ctx.fillText(lineText, W / 2, startY);
+        startY += lineHeight;
+      });
+      
       ctx.restore();
       return;
     }
 
+    // CASE 2: Karaoke Subtitles (measure, group into wrapped lines, and draw centered)
     ctx.font = `800 ${fontSize}px ${fontFamily}`;
     const spacing = fontSize * 0.35;
-    let totalW = 0;
     
     const processedWords = wordsToShow.map(w => {
       let raw = w.raw;
@@ -710,65 +862,98 @@ export default function VideoPlayer({
         raw = raw.toUpperCase();
       }
       const wWidth = ctx.measureText(raw).width;
-      totalW += wWidth + spacing;
       return { ...w, raw, wWidth };
     });
-    totalW -= spacing;
 
-    let startX = (W - totalW) / 2;
+    // Group processed words into lines based on safeW
+    const lines = [];
+    let currentLine = [];
+    let currentLineWidth = 0;
 
-    processedWords.forEach((w, idx) => {
-      const isActive = time >= w.start && time <= w.end;
-      
-      ctx.save();
-      
-      if (isActive) {
-        ctx.fillStyle = subtitleSettings.focusColor || '#eab308'; // Bright focus colors
-        
-        if (animationStyle === 'pulse' || animationStyle === 'bounce-pop') {
-          ctx.translate(startX + w.wWidth / 2, subY - (fontSize * 0.4));
-          if (animationStyle === 'pulse') {
-            ctx.scale(1.15, 1.15); // 15% scale pulse
-          } else if (animationStyle === 'bounce-pop') {
-            ctx.translate(0, -6); // bounce up 6px
-            ctx.rotate(-0.04); // rotate slightly left (-2 degrees)
-            ctx.scale(1.15, 1.15);
-          }
-          ctx.translate(-(startX + w.wWidth / 2), -(subY - (fontSize * 0.4)));
-        } else if (animationStyle === 'bg-box') {
-          // Draw a background box behind active word
-          ctx.save();
-          ctx.fillStyle = subtitleSettings.bgBoxColor || 'rgba(0,0,0,0.75)';
-          const padX = fontSize * 0.3;
-          const padY = fontSize * 0.2;
-          ctx.beginPath();
-          ctx.roundRect(
-            startX - padX, 
-            subY - fontSize + (fontSize * 0.1) - padY, 
-            w.wWidth + padX * 2, 
-            fontSize + padY * 2, 
-            6
-          );
-          ctx.fill();
-          ctx.restore();
-        }
+    processedWords.forEach((w) => {
+      // Start a new line if adding this word exceeds safeW and we already have words in the current line
+      if (currentLineWidth + w.wWidth > safeW && currentLine.length > 0) {
+        lines.push({
+          words: currentLine,
+          width: currentLineWidth - spacing
+        });
+        currentLine = [w];
+        currentLineWidth = w.wWidth + spacing;
       } else {
-        ctx.fillStyle = textColor;
+        currentLine.push(w);
+        currentLineWidth += w.wWidth + spacing;
       }
+    });
+    if (currentLine.length > 0) {
+      lines.push({
+        words: currentLine,
+        width: currentLineWidth - spacing
+      });
+    }
 
-      ctx.font = `800 ${fontSize}px ${fontFamily}`;
-      ctx.textAlign = 'left';
+    const lineHeight = fontSize * 1.25;
+    const totalLinesHeight = lines.length * lineHeight;
+    // Align/center lines vertically around subY
+    let lineY = subY - (totalLinesHeight / 2) + (lineHeight / 2);
 
-      if (strokeWidth > 0 && strokeColor !== 'transparent' && strokeColor !== 'none') {
-        ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = strokeWidth;
-        ctx.lineJoin = 'round';
-        ctx.strokeText(w.raw, startX, subY);
-      }
-      ctx.fillText(w.raw, startX, subY);
-      
-      ctx.restore();
-      startX += w.wWidth + spacing;
+    lines.forEach((line) => {
+      let startX = (W - line.width) / 2;
+
+      line.words.forEach((w) => {
+        const isActive = time >= w.start && time <= w.end;
+        
+        ctx.save();
+        
+        if (isActive) {
+          ctx.fillStyle = subtitleSettings.focusColor || '#eab308'; // Bright focus colors
+          
+          if (animationStyle === 'pulse' || animationStyle === 'bounce-pop') {
+            ctx.translate(startX + w.wWidth / 2, lineY - (fontSize * 0.4));
+            if (animationStyle === 'pulse') {
+              ctx.scale(1.15, 1.15); // 15% scale pulse
+            } else if (animationStyle === 'bounce-pop') {
+              ctx.translate(0, -6); // bounce up 6px
+              ctx.rotate(-0.04); // rotate slightly left (-2 degrees)
+              ctx.scale(1.15, 1.15);
+            }
+            ctx.translate(-(startX + w.wWidth / 2), -(lineY - (fontSize * 0.4)));
+          } else if (animationStyle === 'bg-box') {
+            // Draw a background box behind active word
+            ctx.save();
+            ctx.fillStyle = subtitleSettings.bgBoxColor || 'rgba(0,0,0,0.75)';
+            const padX = fontSize * 0.3;
+            const padY = fontSize * 0.2;
+            ctx.beginPath();
+            ctx.roundRect(
+              startX - padX, 
+              lineY - fontSize + (fontSize * 0.1) - padY, 
+              w.wWidth + padX * 2, 
+              fontSize + padY * 2, 
+              6
+            );
+            ctx.fill();
+            ctx.restore();
+          }
+        } else {
+          ctx.fillStyle = textColor;
+        }
+
+        ctx.font = `800 ${fontSize}px ${fontFamily}`;
+        ctx.textAlign = 'left';
+
+        if (strokeWidth > 0 && strokeColor !== 'transparent' && strokeColor !== 'none') {
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = strokeWidth;
+          ctx.lineJoin = 'round';
+          ctx.strokeText(w.raw, startX, lineY);
+        }
+        ctx.fillText(w.raw, startX, lineY);
+        
+        ctx.restore();
+        startX += w.wWidth + spacing;
+      });
+
+      lineY += lineHeight;
     });
 
     ctx.restore();
@@ -776,8 +961,8 @@ export default function VideoPlayer({
 
   const drawCroppedVideo = (ctx, video, rx, ry, rw, rh) => {
     try {
-      const vWidth = video.videoWidth;
-      const vHeight = video.videoHeight;
+      const vWidth = video.videoWidth || video.width;
+      const vHeight = video.videoHeight || video.height;
       if (!vWidth || !vHeight) return;
 
       const vAspect = vWidth / vHeight;

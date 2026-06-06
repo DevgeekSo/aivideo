@@ -88,13 +88,24 @@ export default function ExportPanel({
         }
 
         // Mix in scene-specific Sound Effects
+        const SFX_VOLUME = 0.2; // Decreased volume
         scenes.forEach(scene => {
           if (scene.sfxUrl && sfxBuffers[scene.sfxUrl]) {
             const sfxSource = audioCtx.createBufferSource();
             sfxSource.buffer = sfxBuffers[scene.sfxUrl];
-            sfxSource.connect(dest);
+            
+            // Lower SFX volume using a GainNode
+            const sfxGain = audioCtx.createGain();
+            sfxGain.gain.setValueAtTime(SFX_VOLUME, audioCtx.currentTime);
+            
+            sfxSource.connect(sfxGain);
+            sfxGain.connect(dest);
+            
             const sceneStart = scenes.slice(0, scenes.indexOf(scene)).reduce((sum, s) => sum + (s.duration || 3), 0);
-            sfxSource.start(audioCtx.currentTime + sceneStart);
+            const sceneDuration = scene.duration || 3;
+            
+            // Play only for the duration of this scene
+            sfxSource.start(audioCtx.currentTime + sceneStart, 0, sceneDuration);
             sfxSourceNodes.push(sfxSource);
           }
         });

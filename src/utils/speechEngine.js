@@ -61,21 +61,13 @@ export function estimateSubtitleTimestamps(scenes, totalDuration, targetDuration
     const words1 = (scene.text || "").split(/\s+/).filter(Boolean);
     const words2 = (scene.text2 || "").split(/\s+/).filter(Boolean);
 
-    let duration1 = words1.length * timePerWord;
-    let duration2 = words2.length * timePerWord;
+    const duration1 = words1.length * timePerWord;
+    const duration2 = words2.length * timePerWord;
     const speechDuration = duration1 + duration2;
 
-    // Enforce 0.9s minimum and 3.0s maximum clip duration constraint
-    const maxDuration = 3.0;
-    const minDuration = 0.9;
-    const sceneDuration = Math.max(minDuration, Math.min(maxDuration, speechDuration));
-
-    // Scale subtitle word timings if clamped, preventing synchronization drift
-    if (speechDuration > maxDuration && speechDuration > 0) {
-      const scale = maxDuration / speechDuration;
-      duration1 *= scale;
-      duration2 *= scale;
-    }
+    // Use actual speech duration for the scene to ensure perfect voice sync.
+    // Falls back to a default of 3.0s if there are no words in the scene.
+    const sceneDuration = speechDuration > 0 ? speechDuration : 3.0;
 
     const words = [];
     const sceneSpeechStart = currentStart;

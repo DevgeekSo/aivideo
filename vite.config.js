@@ -65,6 +65,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/api\/replicate/, ''),
+      },
+      '/api/cloudflare': {
+        target: 'https://api.cloudflare.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api\/cloudflare/, ''),
       }
     }
   }

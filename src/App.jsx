@@ -22,6 +22,8 @@ import ExportPanel from './components/ExportPanel';
 import { estimateSubtitleTimestamps } from './utils/speechEngine';
 import { searchStockVideos } from './utils/pexelsApi';
 import { generateAiVideo } from './utils/aiVideoApi';
+import { generateAiImage } from './utils/cloudflareImageApi';
+import { searchWikimediaCommons } from './utils/wikimediaApi';
 
 export default function App() {
   // Active Sidebar Tab: 'script' | 'videos' | 'audio' | 'subtitles' | 'export'
@@ -85,7 +87,11 @@ export default function App() {
     aiVideoCustomUrl: localStorage.getItem('key_aivideo_custom_url') || '',
     aiVideoCustomHeaders: localStorage.getItem('key_aivideo_custom_headers') || '{\n  "Content-Type": "application/json"\n}',
     aiVideoCustomPayload: localStorage.getItem('key_aivideo_custom_payload') || '{\n  "prompt": "{{prompt}}",\n  "aspect_ratio": "9:16"\n}',
-    aiVideoCustomPath: localStorage.getItem('key_aivideo_custom_path') || 'video.url'
+    aiVideoCustomPath: localStorage.getItem('key_aivideo_custom_path') || 'video.url',
+    aiImageProvider: localStorage.getItem('key_aiimage_provider') || 'cloudflare',
+    aiImageKey: localStorage.getItem('key_aiimage_key') || '',
+    aiImageAccountId: localStorage.getItem('key_aiimage_account_id') || '',
+    aiImageModel: localStorage.getItem('key_aiimage_model') || '@cf/stabilityai/stable-diffusion-xl-base-1.0'
   });
 
   // Background Auto-Pick states
@@ -125,9 +131,39 @@ export default function App() {
           } catch (aiErr) {
             console.error(`AI Video Gen failed for scene ${scene.id}, falling back to stock search:`, aiErr);
           }
+        } else if (scene.videoSource === 'ai-image') {
+          setAutoPickProgress(`Scene ${i + 1}/${targetScenes.length} (AI Image): Generating image...`);
+          try {
+            const prompt = scene.promptForAiImage || `A beautiful picture showing ${scene.searchKeyword}`;
+            videoUrl = await generateAiImage(prompt, {
+              provider: keys.aiImageProvider || 'cloudflare',
+              apiKey: keys.aiImageKey || '',
+              accountId: keys.aiImageAccountId || '',
+              modelName: keys.aiImageModel || '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+              apiKeys: keys,
+              onStatusUpdate: (status) => {
+                setAutoPickProgress(`Scene ${i + 1}/${targetScenes.length} (AI Image): ${status}`);
+              }
+            });
+          } catch (aiErr) {
+            console.error(`AI Image Gen failed for scene ${scene.id}, falling back to stock search:`, aiErr);
+          }
+        } else if (scene.videoSource === 'wikimedia') {
+          setAutoPickProgress(`Scene ${i + 1}/${targetScenes.length} (Wikimedia): Searching "${scene.searchKeyword}"...`);
+          try {
+            const results = await searchWikimediaCommons(scene.searchKeyword);
+            if (results && results.length > 0) {
+              // Trust the API's sort order completely (which prioritizes lead images and resolution).
+              const selectedClip = results[0];
+              videoUrl = selectedClip.videoUrl;
+              console.log(`[Auto-Pick] Scene ${i + 1} (${scene.searchKeyword}): Picked "${selectedClip.title}" from ${selectedClip.source} (${selectedClip.width}x${selectedClip.height})`);
+            }
+          } catch (wikiErr) {
+            console.error(`Wikimedia search failed for scene ${scene.id}, falling back to stock search:`, wikiErr);
+          }
         }
 
-        // If we didn't generate a video (either because it is pexels, or because AI generation failed)
+        // If we didn't generate or fetch a video/image (either because it is pexels, or because initial search failed)
         if (!videoUrl) {
           setAutoPickProgress(`Scene ${i + 1}/${targetScenes.length} (Stock): Matching "${scene.searchKeyword}"...`);
           // Fetch stock results
@@ -141,10 +177,40 @@ export default function App() {
             }
             videoUrl = selectedClip.videoUrl;
           } else {
-            // Backup query
-            const backupClips = await searchStockVideos("abstract loop", keys);
-            if (backupClips && backupClips.length > 0) {
-              videoUrl = backupClips[0].videoUrl;
+            // Fallback 1: Try Wikimedia Commons search
+            setAutoPickProgress(`Scene ${i + 1}/${targetScenes.length} (Wikimedia Fallback): Searching "${scene.searchKeyword}"...`);
+            try {
+              const wikiResults = await searchWikimediaCommons(scene.searchKeyword);
+              if (wikiResults && wikiResults.length > 0) {
+                // Trust the API's sort order completely.
+                const selectedClip = wikiResults[0];
+                videoUrl = selectedClip.videoUrl;
+                console.log(`[Auto-Pick Fallback] Scene ${i + 1} (${scene.searchKeyword}): Picked "${selectedClip.title}" from ${selectedClip.source} (${selectedClip.width}x${selectedClip.height})`);
+              }
+            } catch (wikiErr) {
+              console.warn("Wikimedia fallback search failed", wikiErr);
+            }
+
+            if (!videoUrl) {
+              // Fallback 2: Generate AI Image since stock and wikimedia returned nothing
+              setAutoPickProgress(`Scene ${i + 1}/${targetScenes.length} (Stock Fallback): Generating AI Image for "${scene.searchKeyword}"...`);
+              try {
+                const prompt = `A high quality professional picture of ${scene.searchKeyword}, realistic, 8k resolution`;
+                videoUrl = await generateAiImage(prompt, {
+                  provider: keys.aiImageProvider || 'cloudflare',
+                  apiKey: keys.aiImageKey || '',
+                  accountId: keys.aiImageAccountId || '',
+                  modelName: keys.aiImageModel || '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+                  apiKeys: keys
+                });
+              } catch (imgErr) {
+                console.warn("Stock AI Image fallback failed, using abstract loop", imgErr);
+                // Backup query
+                const backupClips = await searchStockVideos("abstract loop", keys);
+                if (backupClips && backupClips.length > 0) {
+                  videoUrl = backupClips[0].videoUrl;
+                }
+              }
             }
           }
         }
@@ -172,32 +238,73 @@ export default function App() {
     const jamendoId = localStorage.getItem('key_jamendo') || "";
     const freesoundToken = localStorage.getItem('key_freesound') || "";
 
-    // 1. Auto-Fetch BGM from Jamendo
+    // 1. Auto-Fetch BGM from Jamendo or local fallback
     if (scriptObj.bgmSearchQuery) {
       console.log(`Auto-fetching BGM for query: "${scriptObj.bgmSearchQuery}"`);
-      try {
-        const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${jamendoId}&format=json&limit=5&search=${encodeURIComponent(scriptObj.bgmSearchQuery)}&include=musicinfo&audioformat=mp32`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const resData = await res.json();
-          if (resData.results && resData.results.length > 0) {
-            const track = resData.results[0];
-            console.log(`AI selected BGM: "${track.name}" by ${track.artist_name}`);
-            
-            localStorage.setItem('key_selected_bgm_preset', `jamendo-${track.id}`);
-            
-            const audioRes = await fetch(track.audio);
-            if (audioRes.ok) {
-              const arrayBuffer = await audioRes.arrayBuffer();
-              const ctx = new (window.AudioContext || window.webkitAudioContext)();
-              const buffer = await ctx.decodeAudioData(arrayBuffer);
-              setBgmBuffer(buffer);
-              console.log(`Successfully loaded and decoded AI BGM: "${track.name}"`);
+      let loaded = false;
+
+      if (jamendoId) {
+        try {
+          const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${jamendoId}&format=json&limit=5&search=${encodeURIComponent(scriptObj.bgmSearchQuery)}&include=musicinfo&audioformat=mp32`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const resData = await res.json();
+            if (resData.results && resData.results.length > 0) {
+              const track = resData.results[0];
+              console.log(`AI selected BGM from Jamendo: "${track.name}" by ${track.artist_name}`);
+              
+              localStorage.setItem('key_selected_bgm_preset', `jamendo-${track.id}`);
+              
+              const audioRes = await fetch(track.audio);
+              if (audioRes.ok) {
+                const arrayBuffer = await audioRes.arrayBuffer();
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const buffer = await ctx.decodeAudioData(arrayBuffer);
+                setBgmBuffer(buffer);
+                console.log(`Successfully loaded and decoded Jamendo BGM: "${track.name}"`);
+                loaded = true;
+              }
             }
           }
+        } catch (e) {
+          console.warn("Jamendo Auto BGM loading failed, using local presets:", e);
         }
-      } catch (e) {
-        console.warn("Auto BGM loading failed:", e);
+      }
+
+      // Local Presets Fallback if Jamendo not set up or failed
+      if (!loaded) {
+        const queryLower = scriptObj.bgmSearchQuery.toLowerCase();
+        let filename = 'monume-lofi-chill-chill-509496.mp3'; // Default to Lofi Chill
+        let presetId = 'lofi_chill';
+
+        if (queryLower.includes('cinematic') || queryLower.includes('mystery') || queryLower.includes('suspense') || queryLower.includes('epic') || queryLower.includes('dark')) {
+          filename = 'gajju_m-shadows-of-time-270262.mp3';
+          presetId = 'shadows_of_time';
+        } else if (queryLower.includes('inspiring') || queryLower.includes('spirit') || queryLower.includes('corporate') || queryLower.includes('motivational') || queryLower.includes('upbeat')) {
+          filename = 'nastelbom-inspiring-inspiring-music-486987.mp3';
+          presetId = 'inspiring_spirit';
+        } else if (queryLower.includes('ambient') || queryLower.includes('calm') || queryLower.includes('peaceful') || queryLower.includes('relax')) {
+          filename = 'paulyudin-ambient-relax-113444.mp3';
+          presetId = 'ambient_relax';
+        } else if (queryLower.includes('soft') || queryLower.includes('zen') || queryLower.includes('wellness') || queryLower.includes('nature')) {
+          filename = 'freemusicforvideo-relax-relax-music-524068.mp3';
+          presetId = 'relaxing_soundscape';
+        }
+
+        console.log(`Using local BGM fallback preset "${presetId}" for query: "${scriptObj.bgmSearchQuery}"`);
+        try {
+          const response = await fetch(`/bgm/${filename}`);
+          if (response.ok) {
+            const arrayBuffer = await response.arrayBuffer();
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const buffer = await ctx.decodeAudioData(arrayBuffer);
+            setBgmBuffer(buffer);
+            localStorage.setItem('key_selected_bgm_preset', presetId);
+            console.log(`Successfully loaded and decoded local BGM fallback: ${presetId}`);
+          }
+        } catch (e) {
+          console.warn("Local fallback BGM loading failed:", e);
+        }
       }
     }
 
@@ -316,7 +423,11 @@ export default function App() {
         aiVideoCustomUrl: localStorage.getItem('key_aivideo_custom_url') || '',
         aiVideoCustomHeaders: localStorage.getItem('key_aivideo_custom_headers') || '{\n  "Content-Type": "application/json"\n}',
         aiVideoCustomPayload: localStorage.getItem('key_aivideo_custom_payload') || '{\n  "prompt": "{{prompt}}",\n  "aspect_ratio": "9:16"\n}',
-        aiVideoCustomPath: localStorage.getItem('key_aivideo_custom_path') || 'video.url'
+        aiVideoCustomPath: localStorage.getItem('key_aivideo_custom_path') || 'video.url',
+        aiImageProvider: localStorage.getItem('key_aiimage_provider') || 'cloudflare',
+        aiImageKey: localStorage.getItem('key_aiimage_key') || '',
+        aiImageAccountId: localStorage.getItem('key_aiimage_account_id') || '',
+        aiImageModel: localStorage.getItem('key_aiimage_model') || '@cf/stabilityai/stable-diffusion-xl-base-1.0'
       });
     };
     window.addEventListener('storage', handleStorageChange);

@@ -55,6 +55,12 @@ export default function ScriptGenerator({
   const [aiVideoCustomPayload, setAiVideoCustomPayload] = useState(() => localStorage.getItem('key_aivideo_custom_payload') || '{\n  "prompt": "{{prompt}}",\n  "aspect_ratio": "9:16"\n}');
   const [aiVideoCustomPath, setAiVideoCustomPath] = useState(() => localStorage.getItem('key_aivideo_custom_path') || 'video.url');
 
+  // AI Image keys states
+  const [aiImageProvider, setAiImageProvider] = useState(() => localStorage.getItem('key_aiimage_provider') || "cloudflare");
+  const [aiImageKey, setAiImageKey] = useState(() => localStorage.getItem('key_aiimage_key') || "");
+  const [aiImageAccountId, setAiImageAccountId] = useState(() => localStorage.getItem('key_aiimage_account_id') || "");
+  const [aiImageModel, setAiImageModel] = useState(() => localStorage.getItem('key_aiimage_model') || "@cf/stabilityai/stable-diffusion-xl-base-1.0");
+
   // Sync keys to local storage on change
   useEffect(() => {
     localStorage.setItem('key_gemini', geminiKey);
@@ -100,6 +106,22 @@ export default function ScriptGenerator({
     localStorage.setItem('key_aivideo_custom_path', aiVideoCustomPath);
   }, [aiVideoCustomPath]);
 
+  useEffect(() => {
+    localStorage.setItem('key_aiimage_provider', aiImageProvider);
+  }, [aiImageProvider]);
+
+  useEffect(() => {
+    localStorage.setItem('key_aiimage_key', aiImageKey);
+  }, [aiImageKey]);
+
+  useEffect(() => {
+    localStorage.setItem('key_aiimage_account_id', aiImageAccountId);
+  }, [aiImageAccountId]);
+
+  useEffect(() => {
+    localStorage.setItem('key_aiimage_model', aiImageModel);
+  }, [aiImageModel]);
+
   // Ensure local storage is initialized with these defaults on load
   useEffect(() => {
     if (!localStorage.getItem('key_gemini')) {
@@ -110,6 +132,9 @@ export default function ScriptGenerator({
     }
     if (!localStorage.getItem('key_pexels')) {
       localStorage.setItem('key_pexels', import.meta.env.VITE_PEXELS_API_KEY || "");
+    }
+    if (!localStorage.getItem('key_aiimage_key')) {
+      localStorage.setItem('key_aiimage_key', '');
     }
   }, []);
 
@@ -144,7 +169,11 @@ export default function ScriptGenerator({
         aiVideoCustomUrl,
         aiVideoCustomHeaders,
         aiVideoCustomPayload,
-        aiVideoCustomPath
+        aiVideoCustomPath,
+        aiImageProvider,
+        aiImageKey,
+        aiImageAccountId,
+        aiImageModel
       }, data);
     } catch (e) {
       alert("Error generating script: " + e.message);
@@ -386,6 +415,62 @@ export default function ScriptGenerator({
                 </div>
               </>
             )}
+            {/* AI Image Settings Section */}
+            <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)', margin: '12px 0 8px 0' }}></div>
+            <label className="input-label" style={{ fontSize: '9px', color: 'var(--color-primary)', fontWeight: 'bold', letterSpacing: '0.5px' }}>AI Image Model Settings</label>
+            
+            <div className="form-group">
+              <label className="input-label" style={{ fontSize: '10px' }}>AI Image Provider</label>
+              <select
+                value={aiImageProvider}
+                onChange={(e) => setAiImageProvider(e.target.value)}
+                className="select-input"
+                style={{ padding: '6px 10px', fontSize: '12px' }}
+              >
+                <option value="cloudflare">Cloudflare Workers AI</option>
+                <option value="mock">Mock / Sandbox AI Image (No Keys)</option>
+              </select>
+            </div>
+
+            {aiImageProvider === 'cloudflare' && (
+              <>
+                <div className="form-group">
+                  <label className="input-label" style={{ fontSize: '10px' }}>Cloudflare Account ID</label>
+                  <input
+                    type="text"
+                    placeholder="Enter Account ID..."
+                    value={aiImageAccountId}
+                    onChange={(e) => setAiImageAccountId(e.target.value)}
+                    className="text-input"
+                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="input-label" style={{ fontSize: '10px' }}>Cloudflare API Token</label>
+                  <input
+                    type="password"
+                    placeholder="cfut_..."
+                    value={aiImageKey}
+                    onChange={(e) => setAiImageKey(e.target.value)}
+                    className="text-input"
+                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="input-label" style={{ fontSize: '10px' }}>Cloudflare Image Model</label>
+                  <select
+                    value={aiImageModel}
+                    onChange={(e) => setAiImageModel(e.target.value)}
+                    className="select-input"
+                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                  >
+                    <option value="@cf/stabilityai/stable-diffusion-xl-base-1.0">Stable Diffusion XL Base 1.0</option>
+                    <option value="@cf/black-forest-labs/flux-1-schnell">Flux 1 Schnell</option>
+                    <option value="@cf/lykon/dreamshaper-8-lcm">Dreamshaper 8 LCM</option>
+                  </select>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -517,7 +602,7 @@ export default function ScriptGenerator({
                   />
                 </div>
 
-                {/* Visual Source (Pexels vs AI Video) */}
+                {/* Visual Source (Pexels vs AI Video vs AI Image) */}
                 <div className="card-grid-2" style={{ marginTop: '8px', marginBottom: '4px' }}>
                   <div className="form-group">
                     <label className="input-label" style={{ fontSize: '10px' }}>Visual Source</label>
@@ -528,13 +613,17 @@ export default function ScriptGenerator({
                         handleSceneChange(scene.id, 'videoSource', val);
                         if (val === 'ai-video' && !scene.promptForAiVideo) {
                           handleSceneChange(scene.id, 'promptForAiVideo', `A clean cinematic short clip showing ${scene.searchKeyword || scene.text || 'abstract art'}, 4k, realistic`);
+                        } else if (val === 'ai-image' && !scene.promptForAiImage) {
+                          handleSceneChange(scene.id, 'promptForAiImage', `A high quality professional picture of ${scene.searchKeyword || scene.text || 'abstract art'}, realistic, 8k resolution`);
                         }
                       }}
                       className="select-input"
                       style={{ padding: '6px 10px', fontSize: '12px' }}
                     >
                       <option value="pexels">Stock Footage (Pexels)</option>
+                      <option value="wikimedia">Wikimedia Commons</option>
                       <option value="ai-video">AI Video Generator</option>
+                      <option value="ai-image">AI Image Generator</option>
                     </select>
                   </div>
 
@@ -545,7 +634,21 @@ export default function ScriptGenerator({
                         type="text"
                         value={scene.promptForAiVideo || ""}
                         onChange={(e) => handleSceneChange(scene.id, 'promptForAiVideo', e.target.value)}
-                        placeholder="Describe what the AI should generate..."
+                        placeholder="Describe what the AI video should generate..."
+                        className="text-input"
+                        style={{ padding: '6px 10px', fontSize: '12px' }}
+                      />
+                    </div>
+                  )}
+
+                  {scene.videoSource === 'ai-image' && (
+                    <div className="form-group">
+                      <label className="input-label" style={{ fontSize: '10px' }}>AI Image Prompt</label>
+                      <input
+                        type="text"
+                        value={scene.promptForAiImage || ""}
+                        onChange={(e) => handleSceneChange(scene.id, 'promptForAiImage', e.target.value)}
+                        placeholder="Describe what the AI image should generate..."
                         className="text-input"
                         style={{ padding: '6px 10px', fontSize: '12px' }}
                       />

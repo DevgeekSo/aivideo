@@ -26,19 +26,23 @@ const responseSchema = {
           id: { type: "STRING" },
           text: { type: "STRING", description: "The subtitle phrase chunk. Keep it natural and readable, letting the length be determined by the context." },
           text2: { type: "STRING", description: "Optional second subtitle phrase chunk to display consecutively in the same video clip." },
-          searchKeyword: { type: "STRING", description: "A highly visual search keyword for stock videos, e.g. 'relaxing stream', 'coding code on screen'." },
+          searchKeyword: { type: "STRING", description: "A highly visual search keyword. For 'pexels', use action phrases (e.g. 'laptop typing', 'forest pan'). For 'wikimedia', you MUST specify the exact name of the person, celebrity, historical figure, specific landmark, place, or specific object (e.g., 'Albert Einstein', 'Eiffel Tower', 'Mona Lisa') so Wikipedia can retrieve the correct primary article image. For AI generation, use a short summary." },
           videoSource: {
             type: "STRING",
-            enum: ["pexels", "ai-video"],
-            description: "Specify whether to fetch this scene's background from stock (pexels) or generate it with AI Video (ai-video). Choose 'ai-video' only if the required clip depicts something highly specific, custom-branded, fantastical, or difficult to find in standard stock databases. Otherwise use 'pexels'."
+            enum: ["pexels", "ai-video", "ai-image", "wikimedia"],
+            description: "Specify whether to fetch this scene's background from Pexels stock (pexels), Wikimedia Commons (wikimedia), generate it with AI Video (ai-video), or generate it with AI Image (ai-image). Prefer 'wikimedia' for a wide range of real-world subjects: historic events, landmarks, wildlife, geography, cities, monuments, science, culture, famous historical or cultural figures, maps, diagrams, or specific public domain objects. Choose 'ai-image' or 'ai-video' for custom or fantastical elements not found in real-world databases. Use 'pexels' for general corporate/business, technology, lifestyle, or abstract stock backgrounds."
           },
           promptForAiVideo: {
             type: "STRING",
-            description: "If videoSource is 'ai-video', write a highly descriptive visual prompt for the AI video generator, e.g. 'A futuristic 3D keyboard hovering in space with neon electric currents discharging from keys, cinematic lighting, 8k'. If videoSource is 'pexels', keep this empty."
+            description: "If videoSource is 'ai-video', write a highly descriptive visual prompt for the AI video generator, e.g. 'A futuristic 3D keyboard hovering in space with neon electric currents discharging from keys, cinematic lighting, 8k'. If videoSource is 'pexels', 'wikimedia', or 'ai-image', keep this empty."
+          },
+          promptForAiImage: {
+            type: "STRING",
+            description: "If videoSource is 'ai-image', write a highly descriptive visual prompt for the AI image generator, e.g. 'A rare blue bird in a golden cage, professional studio photograph, dramatic lighting, 8k'. If videoSource is 'pexels', 'wikimedia', or 'ai-video', keep this empty."
           },
           sfxSearchQuery: {
             type: "STRING",
-            description: "Optional sound effect search query to trigger at the start of this scene, e.g. 'whoosh transition', 'camera click', 'mouse click', 'glass shatter'. Keep it empty if no sound effect is needed."
+            description: "Optional sound effect search query to trigger at the start of this scene (e.g. 'whoosh', 'bell ring'). Use very sparingly; keep it empty for most scenes. Maximum 1-2 sound effects for the entire video."
           },
           duration: { type: "NUMBER", description: "Duration in seconds, between 3.0 and 4.5 seconds for faceless, or matching conversation speed (approx 1.2 to 2 seconds for dialogue)." },
           speaker: { type: "STRING", enum: ["A", "B"], description: "For split-screen dialogue, specify who speaks. Otherwise use A." },
@@ -74,7 +78,9 @@ const responseSchema = {
  * @returns {Promise<Object>} Structured script object
  */
 export async function generateVideoScript(prompt, apiKey = '', targetDuration = 'auto', provider = 'gemini') {
-  if (provider === 'offline' || !apiKey) {
+  const trimmedApiKey = typeof apiKey === 'string' ? apiKey.trim() : apiKey;
+
+  if (provider === 'offline' || !trimmedApiKey) {
     console.log("Offline mode selected or no API key provided. Using Offline Sandbox Generator.");
     return generateOfflineScript(prompt, targetDuration);
   }
@@ -101,14 +107,14 @@ CRITICAL RULES:
 3. If split-screen (Dialogue Layout), write it as a back-and-forth conversation between Speaker A and Speaker B. Make speaker A have upper viewport, B have lower viewport.
 4. If faceless, each clip duration in the scenes should be between 1.5 and 3.0 seconds (3.0 seconds max).
 5. If tweet-showcase, include the cardContent for the social card, like handle "@username", name "Display Name", and body text.
-6. Provide highly relevant stock footage keywords in 'searchKeyword' for Pexels search. Use simple concrete terms like 'laptop code', 'forest pan', 'neon city', 'business handshake' instead of abstract concepts.${durationInstructions}
+6. Provide highly relevant search keywords in 'searchKeyword'. If using 'pexels', use simple concrete terms (e.g. 'laptop code', 'forest pan') instead of abstract concepts. If using 'wikimedia' for a person, celebrity, place, landmark, or specific thing, you MUST provide the exact proper name (e.g. 'Albert Einstein', 'Eiffel Tower', 'DNA double helix') to ensure Wikipedia retrieves the correct article portrait or image.${durationInstructions}
 7. Assign a transition effect to scenes ('transition' property). Use 'none' (Cut) as default, but use 'cross-dissolve', 'slide-left', or 'zoom-fade' occasionally to make transitions dynamic.
 8. Specify a relevant search query for background music in 'bgmSearchQuery' to match the theme of the video.
-9. If appropriate, specify relevant sound effect queries (e.g. 'whoosh', 'bell ring', 'mouse click') for specific scenes in 'sfxSearchQuery' to highlight camera cuts, transitions, or text pop-ups.
-10. Classify each scene's 'videoSource' as 'pexels' or 'ai-video'. Choose 'ai-video' only if the scene requires custom visual details, brand-specific illustrations, fantastical elements, or highly customized action prompts that a stock database will not have (e.g. 'a glowing key floating in blue cybernetic code', 'a developer in medieval knight armor debugging a monitor'). For everyday visual backgrounds (office, streets, typing, nature), use 'pexels'. If using 'ai-video', supply a detailed text-to-video prompt in 'promptForAiVideo'.`;
+9. Specify a sound effect search query in 'sfxSearchQuery' very sparingly (maximum 1 or 2 sound effects per video). Keep this field empty for most scenes. Only use them for critical transitions or high-impact reveals to avoid annoying the user with too many sound effects.
+10. Classify each scene's 'videoSource' as 'pexels', 'wikimedia', 'ai-video', or 'ai-image'. Prefer 'wikimedia' for real-world subjects including historic events, landmarks, cities, geography, famous historical or cultural figures, monuments, science topics, wildlife, maps, diagrams, or public domain assets. Choose 'ai-image' if the scene requires highly specific custom or fantastical visual elements that cannot be found in stock databases and where a static image is appropriate. Choose 'ai-video' if high-fidelity custom motion is required. Use 'pexels' for general corporate/business, technology, lifestyle, or abstract stock backgrounds. If using 'ai-image', supply a detailed prompt in 'promptForAiImage'. If using 'ai-video', supply a detailed prompt in 'promptForAiVideo'.`;
 
   const callModel = async (modelName) => {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${trimmedApiKey}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -144,6 +150,7 @@ CRITICAL RULES:
   };
 
   const callGroqFallback = async (groqKey) => {
+    const trimmedGroqKey = typeof groqKey === 'string' ? groqKey.trim() : groqKey;
     const url = "https://api.groq.com/openai/v1/chat/completions";
     
     // Add strict JSON formatting instructions for Groq
@@ -156,7 +163,7 @@ Do not output any markdown formatting, backticks, or other text outside the JSON
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${groqKey}`,
+        "Authorization": `Bearer ${trimmedGroqKey}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
@@ -180,6 +187,7 @@ Do not output any markdown formatting, backticks, or other text outside the JSON
   };
 
   const callClaudeModel = async (claudeKey) => {
+    const trimmedClaudeKey = typeof claudeKey === 'string' ? claudeKey.trim() : claudeKey;
     const url = "/api/anthropic/v1/messages";
     const claudeSystemInstructions = `${systemInstructions}
     
@@ -191,7 +199,7 @@ Do not output any markdown formatting, backticks, or other text outside the JSON
       const response = await fetch(url, {
         method: "POST",
         headers: {
-          "x-api-key": claudeKey,
+          "x-api-key": trimmedClaudeKey,
           "anthropic-version": "2023-06-01",
           "content-type": "application/json",
           "anthropic-dangerous-direct-browser-access": "true"
@@ -214,7 +222,12 @@ Do not output any markdown formatting, backticks, or other text outside the JSON
           parsedError = JSON.parse(errorText);
         } catch(e) {}
         
-        if (response.status === 404 || parsedError.error?.type === "not_found_error") {
+        if (response.status === 401 || parsedError.error?.type === "authentication_error") {
+          throw new Error("Invalid Claude API Key. Please click 'AI Settings' and provide a valid Anthropic key, or switch to a different AI Provider.");
+        }
+        
+        // Only classify as MODEL_NOT_FOUND if Anthropic itself returned not_found_error, or if it is a genuine 404 with error payload
+        if (parsedError.error?.type === "not_found_error" || (response.status === 404 && parsedError.error)) {
           throw new Error(`MODEL_NOT_FOUND: ${modelName}`);
         }
         throw new Error(`Claude API returned status ${response.status}: ${errorText}`);
@@ -223,53 +236,40 @@ Do not output any markdown formatting, backticks, or other text outside the JSON
       return await response.json();
     };
 
-    let data;
-    try {
-      console.log("Trying claude-sonnet-4-6...");
-      data = await tryModel("claude-sonnet-4-6");
-    } catch (e) {
-      if (e.message && e.message.startsWith("MODEL_NOT_FOUND")) {
-        try {
-          console.log("claude-sonnet-4-6 not found. Retrying with claude-sonnet-4-5-20250929...");
-          data = await tryModel("claude-sonnet-4-5-20250929");
-        } catch (e2) {
-          if (e2.message && e2.message.startsWith("MODEL_NOT_FOUND")) {
-            try {
-              console.log("claude-sonnet-4-5-20250929 not found. Retrying with claude-haiku-4-5-20251001...");
-              data = await tryModel("claude-haiku-4-5-20251001");
-            } catch (e3) {
-              if (e3.message && e3.message.startsWith("MODEL_NOT_FOUND")) {
-                try {
-                  console.log("claude-haiku-4-5-20251001 not found. Retrying with claude-3-5-sonnet-20241022...");
-                  data = await tryModel("claude-3-5-sonnet-20241022");
-                } catch (e4) {
-                  if (e4.message && e4.message.startsWith("MODEL_NOT_FOUND")) {
-                    try {
-                      console.log("claude-3-5-sonnet-20241022 not found. Retrying with claude-3-5-sonnet-20240620...");
-                      data = await tryModel("claude-3-5-sonnet-20240620");
-                    } catch (e5) {
-                      if (e5.message && e5.message.startsWith("MODEL_NOT_FOUND")) {
-                        console.log("claude-3-5-sonnet-20240620 not found. Retrying with claude-3-haiku-20240307...");
-                        data = await tryModel("claude-3-haiku-20240307");
-                      } else {
-                        throw e5;
-                      }
-                    }
-                  } else {
-                    throw e4;
-                  }
-                }
-              } else {
-                throw e3;
-              }
-            }
-          } else {
-            throw e2;
-          }
+    const modelsToTry = [
+      "claude-sonnet-4-6",
+      "claude-haiku-4-5-20251001",
+      "claude-sonnet-4-5-20250929",
+      "claude-opus-4-8",
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-sonnet-4-20250514",
+      // Older models as last-resort fallbacks
+      "claude-3-5-sonnet-20241022",
+      "claude-3-5-haiku-20241022"
+    ];
+
+    let lastError = null;
+    let data = null;
+
+    for (const model of modelsToTry) {
+      try {
+        console.log(`Attempting Claude model: ${model}`);
+        data = await tryModel(model);
+        break; // Success!
+      } catch (e) {
+        if (e.message && e.message.startsWith("MODEL_NOT_FOUND")) {
+          console.warn(`Model ${model} not found or not supported. Trying next fallback...`);
+          lastError = e;
+          continue;
         }
-      } else {
-        throw e;
+        throw e; // Rethrow other errors (e.g. auth, billing, CORS, 404 proxy issues) immediately
       }
+    }
+
+    if (!data) {
+      if (lastError) throw lastError;
+      throw new Error("No Claude models could be successfully initialized.");
     }
 
     let resultText = data.content[0].text.trim();
@@ -290,8 +290,8 @@ Do not output any markdown formatting, backticks, or other text outside the JSON
 
   if (provider === 'anthropic') {
     try {
-      console.log("Attempting Anthropic Claude API generation with claude-3-5-sonnet...");
-      return await callClaudeModel(apiKey);
+      console.log("Attempting Anthropic Claude API generation...");
+      return await callClaudeModel(trimmedApiKey);
     } catch (error) {
       console.error("Claude generation failed:", error);
       throw error;
@@ -301,7 +301,7 @@ Do not output any markdown formatting, backticks, or other text outside the JSON
   if (provider === 'groq') {
     try {
       console.log("Attempting Groq API generation...");
-      return await callGroqFallback(apiKey);
+      return await callGroqFallback(trimmedApiKey);
     } catch (error) {
       console.error("Groq generation failed:", error);
       throw error;
@@ -396,12 +396,12 @@ function getFacelessTemplate(userPrompt) {
     bgmSearchQuery: "cyberpunk electronic",
     voiceoverText: "Automated video creation is here. Changing everything. You type a prompt. The AI extracts keywords. Stock clips load instantly. Your video is ready.",
     scenes: [
-      { id: "f1", text: "Automated video", text2: "creation is here.", searchKeyword: "cyberpunk coding", duration: 2.5, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "f2", text: "Changing", text2: "everything.", searchKeyword: "laptop matrix", duration: 2.8, speaker: "A", isSentenceBreak: false, transition: "cross-dissolve", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "f3", text: "You type", text2: "a prompt.", searchKeyword: "hands typing keyboard", sfxSearchQuery: "keyboard typing", duration: 2.5, speaker: "A", isSentenceBreak: false, transition: "slide-left", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "f4", text: "The AI", text2: "extracts keywords.", searchKeyword: "futuristic tech", duration: 2.8, speaker: "A", isSentenceBreak: false, transition: "wipe-right", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "f5", text: "Stock clips", text2: "load instantly.", searchKeyword: "loading bar glow", sfxSearchQuery: "whoosh transition", duration: 3.0, speaker: "A", isSentenceBreak: true, transition: "zoom-fade", videoSource: "ai-video", promptForAiVideo: "A glowing futuristic 3D loading bar with neon blue particles flying around in slow motion, cinematic 8k" },
-      { id: "f6", text: "Your video", text2: "is ready.", searchKeyword: "sunset drones", duration: 3.0, speaker: "A", isSentenceBreak: true, transition: "cross-dissolve", videoSource: "pexels", promptForAiVideo: "" }
+      { id: "f1", text: "Automated video", text2: "creation is here.", searchKeyword: "cyberpunk coding", duration: 2.5, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "f2", text: "Changing", text2: "everything.", searchKeyword: "laptop matrix", duration: 2.8, speaker: "A", isSentenceBreak: false, transition: "cross-dissolve", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "f3", text: "You type", text2: "a prompt.", searchKeyword: "hands typing keyboard", duration: 2.5, speaker: "A", isSentenceBreak: false, transition: "slide-left", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "f4", text: "The AI", text2: "extracts keywords.", searchKeyword: "futuristic tech", duration: 2.8, speaker: "A", isSentenceBreak: false, transition: "wipe-right", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "f5", text: "Stock clips", text2: "load instantly.", searchKeyword: "loading bar glow", sfxSearchQuery: "whoosh transition", duration: 3.0, speaker: "A", isSentenceBreak: true, transition: "zoom-fade", videoSource: "ai-video", promptForAiVideo: "A glowing futuristic 3D loading bar with neon blue particles flying around in slow motion, cinematic 8k", promptForAiImage: "" },
+      { id: "f6", text: "Your video", text2: "is ready.", searchKeyword: "sunset drones", duration: 3.0, speaker: "A", isSentenceBreak: true, transition: "cross-dissolve", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" }
     ]
   };
 }
@@ -413,14 +413,14 @@ function getDialogueTemplate(userPrompt) {
     bgmSearchQuery: "smooth jazz lofi",
     voiceoverText: "Hey did you see the new AI video tool? No what is it? It writes engaging scripts, searches stock clips fast, and makes vertical videos. That sounds crazy wild, let me try it!",
     scenes: [
-      { id: "d1", text: "Hey did you", text2: "see the", searchKeyword: "man smiling", duration: 1.5, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "d2", text: "new AI", text2: "video tool?", searchKeyword: "man talking portrait", sfxSearchQuery: "pop", duration: 1.8, speaker: "A", isSentenceBreak: true, transition: "none", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "d3", text: "No, what", text2: "is it?", searchKeyword: "woman curious", duration: 1.2, speaker: "B", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "d4", text: "It writes", text2: "engaging scripts,", searchKeyword: "man explaining", duration: 1.6, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "d5", text: "searches stock", text2: "clips fast,", searchKeyword: "man smiling portrait", sfxSearchQuery: "whoosh", duration: 1.8, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "d6", text: "and makes", text2: "vertical videos.", searchKeyword: "man talking", duration: 1.6, speaker: "A", isSentenceBreak: true, transition: "none", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "d7", text: "That sounds", text2: "crazy wild,", searchKeyword: "woman smiling", duration: 1.5, speaker: "B", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "d8", text: "let me", text2: "try it!", searchKeyword: "woman excited portrait", sfxSearchQuery: "bell ring", duration: 1.8, speaker: "B", isSentenceBreak: true, transition: "none", videoSource: "ai-video", promptForAiVideo: "A developer screen with neon sparks flying out as clean code compiles successfully, cinematic, high detail" }
+      { id: "d1", text: "Hey did you", text2: "see the", searchKeyword: "man smiling", duration: 1.5, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "d2", text: "new AI", text2: "video tool?", searchKeyword: "man talking portrait", duration: 1.8, speaker: "A", isSentenceBreak: true, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "d3", text: "No, what", text2: "is it?", searchKeyword: "woman curious", duration: 1.2, speaker: "B", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "d4", text: "It writes", text2: "engaging scripts,", searchKeyword: "man explaining", duration: 1.6, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "d5", text: "searches stock", text2: "clips fast,", searchKeyword: "man smiling portrait", duration: 1.8, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "d6", text: "and makes", text2: "vertical videos.", searchKeyword: "man talking", duration: 1.6, speaker: "A", isSentenceBreak: true, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "d7", text: "That sounds", text2: "crazy wild,", searchKeyword: "woman smiling", duration: 1.5, speaker: "B", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "d8", text: "let me", text2: "try it!", searchKeyword: "woman excited portrait", sfxSearchQuery: "bell ring", duration: 1.8, speaker: "B", isSentenceBreak: true, transition: "none", videoSource: "ai-video", promptForAiVideo: "A developer screen with neon sparks flying out as clean code compiles successfully, cinematic, high detail", promptForAiImage: "" }
     ]
   };
 }
@@ -432,12 +432,12 @@ function getGuruTemplate(userPrompt) {
     bgmSearchQuery: "inspiring motivational ambient",
     voiceoverText: "Here is the best advice for engineers. Focus on building real products. Don't get stuck in tutorial hell. Build projects people use, and publish code.",
     scenes: [
-      { id: "g1", text: "Here is the", text2: "best advice", searchKeyword: "developer portrait", duration: 1.4, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "g2", text: "for engineers.", text2: "Focus on", searchKeyword: "programmer speaking", sfxSearchQuery: "whoosh", duration: 1.8, speaker: "A", isSentenceBreak: true, transition: "cross-dissolve", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "g3", text: "building real", text2: "products.", searchKeyword: "office desk laptop", duration: 1.6, speaker: "A", isSentenceBreak: true, transition: "zoom-fade", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "g4", text: "Don't get stuck", text2: "in tutorial hell.", searchKeyword: "stressed developer", sfxSearchQuery: "camera click", duration: 1.5, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "ai-video", promptForAiVideo: "A computer monitor turning into a giant fiery vortex sucking in books and code blocks, surreal 3D animation" },
-      { id: "g5", text: "Build projects", text2: "people use,", searchKeyword: "happy coder", duration: 1.5, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "" },
-      { id: "g6", text: "and publish code.", text2: "Good luck!", searchKeyword: "github page glow", sfxSearchQuery: "bell ring", duration: 2.0, speaker: "A", isSentenceBreak: true, transition: "cross-dissolve", videoSource: "pexels", promptForAiVideo: "" }
+      { id: "g1", text: "Here is the", text2: "best advice", searchKeyword: "developer portrait", duration: 1.4, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "g2", text: "for engineers.", text2: "Focus on", searchKeyword: "programmer speaking", duration: 1.8, speaker: "A", isSentenceBreak: true, transition: "cross-dissolve", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "g3", text: "building real", text2: "products.", searchKeyword: "office desk laptop", duration: 1.6, speaker: "A", isSentenceBreak: true, transition: "zoom-fade", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "g4", text: "Don't get stuck", text2: "in tutorial hell.", searchKeyword: "stressed developer", duration: 1.5, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "ai-video", promptForAiVideo: "A computer monitor turning into a giant fiery vortex sucking in books and code blocks, surreal 3D animation", promptForAiImage: "" },
+      { id: "g5", text: "Build projects", text2: "people use,", searchKeyword: "happy coder", duration: 1.5, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" },
+      { id: "g6", text: "and publish code.", text2: "Good luck!", searchKeyword: "github page glow", sfxSearchQuery: "bell ring", duration: 2.0, speaker: "A", isSentenceBreak: true, transition: "cross-dissolve", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "" }
     ]
   };
 }
@@ -450,19 +450,19 @@ function getTweetTemplate(userPrompt) {
     voiceoverText: "I have a confession. I spent three hours debugging today. The issue? A single misplaced semicolon. Software engineering is eighty percent debugging and twenty percent writing bugs.",
     scenes: [
       { 
-        id: "t1", text: "I have a", text2: "confession.", searchKeyword: "abstract liquid motion", sfxSearchQuery: "mouse click", duration: 2.0, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "",
+        id: "t1", text: "I have a", text2: "confession.", searchKeyword: "abstract liquid motion", duration: 2.0, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "",
         cardContent: { handle: "@programmer_life", name: "Dev Confessions", body: "I spent 3 hours debugging today. The issue? A single misplaced semicolon." }
       },
       { 
-        id: "t2", text: "I spent", text2: "three hours", searchKeyword: "colorful energy lines", duration: 1.8, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "",
+        id: "t2", text: "I spent", text2: "three hours", searchKeyword: "colorful energy lines", duration: 1.8, speaker: "A", isSentenceBreak: false, transition: "none", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "",
         cardContent: { handle: "@programmer_life", name: "Dev Confessions", body: "The issue? A single misplaced semicolon." }
       },
       { 
-        id: "t3", text: "debugging today.", text2: "The issue?", searchKeyword: "colorful energy lines", sfxSearchQuery: "whoosh", duration: 2.1, speaker: "A", isSentenceBreak: true, transition: "zoom-fade", videoSource: "pexels", promptForAiVideo: "",
+        id: "t3", text: "debugging today.", text2: "The issue?", searchKeyword: "colorful energy lines", duration: 2.1, speaker: "A", isSentenceBreak: true, transition: "zoom-fade", videoSource: "pexels", promptForAiVideo: "", promptForAiImage: "",
         cardContent: { handle: "@programmer_life", name: "Dev Confessions", body: "The issue? A single misplaced semicolon." }
       },
       { 
-        id: "t4", text: "A single", text2: "misplaced semicolon.", searchKeyword: "digital background grid", sfxSearchQuery: "error beep", duration: 2.2, speaker: "A", isSentenceBreak: true, transition: "slide-left", videoSource: "ai-video", promptForAiVideo: "A giant metallic 3D semicolon glowing red in a dark void, with binary code raining down around it",
+        id: "t4", text: "A single", text2: "misplaced semicolon.", searchKeyword: "digital background grid", sfxSearchQuery: "error beep", duration: 2.2, speaker: "A", isSentenceBreak: true, transition: "slide-left", videoSource: "ai-video", promptForAiVideo: "A giant metallic 3D semicolon glowing red in a dark void, with binary code raining down around it", promptForAiImage: "",
         cardContent: { handle: "@programmer_life", name: "Dev Confessions", body: "Software engineering is 80% debugging and 20% writing bugs." }
       }
     ]

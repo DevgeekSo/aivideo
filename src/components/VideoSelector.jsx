@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { searchStockVideos } from '../utils/pexelsApi';
 import { generateAiVideo } from '../utils/aiVideoApi';
+import { generateAiImage } from '../utils/cloudflareImageApi';
+import { searchWikimediaCommons } from '../utils/wikimediaApi';
 import { 
   DID_AVATAR_PRESETS, 
   DID_VOICE_PRESETS, 
@@ -42,6 +44,10 @@ export default function VideoSelector({
   const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  
+  // Wikimedia pagination states
+  const [wikimediaContinue, setWikimediaContinue] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Tab: 'stock' | 'avatar'
   const [videoSourceTab, setVideoSourceTab] = useState('stock');
@@ -98,6 +104,10 @@ export default function VideoSelector({
       const activeScene = scenes.find(s => s.id === activeSceneId);
       if (activeScene && activeScene.videoSource === 'ai-video') {
         setVideoSourceTab('ai-video');
+      } else if (activeScene && activeScene.videoSource === 'ai-image') {
+        setVideoSourceTab('ai-image');
+      } else if (activeScene && activeScene.videoSource === 'wikimedia') {
+        setVideoSourceTab('wikimedia');
       } else {
         setVideoSourceTab('stock');
       }
@@ -133,14 +143,38 @@ export default function VideoSelector({
     if (!query) return;
     setLoading(true);
     setErrorMsg("");
+    setWikimediaContinue(null); // Clear previous pagination token
     try {
-      const results = await searchStockVideos(query, apiKeys);
-      setSearchResults(results);
+      if (videoSourceTab === 'stock') {
+        const results = await searchStockVideos(query, apiKeys);
+        setSearchResults(results);
+      } else if (videoSourceTab === 'wikimedia') {
+        const response = await searchWikimediaCommons(query, null, true);
+        setSearchResults(response.results || []);
+        setWikimediaContinue(response.continueParams || null);
+      }
     } catch (e) {
-      setErrorMsg("Failed to search stock videos: " + e.message);
+      setErrorMsg("Failed to search assets: " + e.message);
       setSearchResults([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLoadMoreWikimedia = async () => {
+    if (!searchQuery || !wikimediaContinue || loadingMore) return;
+    setLoadingMore(true);
+    setErrorMsg("");
+    try {
+      const response = await searchWikimediaCommons(searchQuery, wikimediaContinue, true);
+      if (response.results && response.results.length > 0) {
+        setSearchResults(prev => [...prev, ...response.results]);
+      }
+      setWikimediaContinue(response.continueParams || null);
+    } catch (e) {
+      setErrorMsg("Failed to load more assets: " + e.message);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -298,6 +332,48 @@ export default function VideoSelector({
     }
   };
 
+  // AI Image States
+  const [aiImageStates, setAiImageStates] = useState({});
+
+  const handleGenerateAiImageScene = async (sceneId) => {
+    const scene = scenes.find(s => s.id === sceneId);
+    if (!scene) return;
+
+    setAiImageStates(prev => ({
+      ...prev,
+      [sceneId]: { status: 'generating', text: 'Submitting request...', error: '' }
+    }));
+
+    try {
+      const prompt = scene.promptForAiImage || `A beautiful picture showing ${scene.searchKeyword}`;
+      const imageUrl = await generateAiImage(prompt, {
+        provider: apiKeys.aiImageProvider || 'cloudflare',
+        apiKey: apiKeys.aiImageKey || '',
+        accountId: apiKeys.aiImageAccountId || '',
+        modelName: apiKeys.aiImageModel || '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+        apiKeys: apiKeys,
+        onStatusUpdate: (statusText) => {
+          setAiImageStates(prev => ({
+            ...prev,
+            [sceneId]: { status: 'generating', text: statusText, error: '' }
+          }));
+        }
+      });
+
+      handleSelectVideo(sceneId, imageUrl);
+      setAiImageStates(prev => ({
+        ...prev,
+        [sceneId]: { status: 'done', text: 'Success!', error: '' }
+      }));
+    } catch (err) {
+      console.error("AI Image Generation failed:", err);
+      setAiImageStates(prev => ({
+        ...prev,
+        [sceneId]: { status: 'error', text: 'Failed', error: err.message }
+      }));
+    }
+  };
+
   const activeScene = scenes.find(s => s.id === activeSceneId);
   const activeSceneRole = activeScene ? (videoProfile === 'guru' ? 'GURU' : (activeScene.speaker || 'A')) : 'A';
 
@@ -371,6 +447,44 @@ export default function VideoSelector({
           }}
         >
           <Video size={12} style={{ color: 'var(--color-accent)' }} /> AI Video
+        </button>
+        <button
+          onClick={() => setVideoSourceTab('ai-image')}
+          className={`flex-row-center gap-2`}
+          style={{
+            flex: 1,
+            padding: '8px 4px',
+            fontSize: '11px',
+            fontWeight: '600',
+            borderRadius: '8px',
+            border: 'none',
+            cursor: 'pointer',
+            background: videoSourceTab === 'ai-image' ? 'var(--bg-darker)' : 'transparent',
+            color: videoSourceTab === 'ai-image' ? 'var(--text-primary)' : 'var(--text-muted)',
+            boxShadow: videoSourceTab === 'ai-image' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <ImageIcon size={12} style={{ color: 'var(--color-primary)' }} /> AI Image
+        </button>
+        <button
+          onClick={() => setVideoSourceTab('wikimedia')}
+          className={`flex-row-center gap-2`}
+          style={{
+            flex: 1,
+            padding: '8px 4px',
+            fontSize: '11px',
+            fontWeight: '600',
+            borderRadius: '8px',
+            border: 'none',
+            cursor: 'pointer',
+            background: videoSourceTab === 'wikimedia' ? 'var(--bg-darker)' : 'transparent',
+            color: videoSourceTab === 'wikimedia' ? 'var(--text-primary)' : 'var(--text-muted)',
+            boxShadow: videoSourceTab === 'wikimedia' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <Search size={12} style={{ color: 'var(--color-emerald)' }} /> Wikimedia
         </button>
       </div>
 
@@ -619,6 +733,341 @@ export default function VideoSelector({
 
         </div>
       )}
+
+      {/* AI IMAGE GENERATOR TAB CONTENT */}
+      {videoSourceTab === 'ai-image' && activeScene && (
+        <div className="flex-col gap-4" style={{ paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <div className="flex-row items-center justify-between">
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              Configure and generate AI image clips for this scene
+            </span>
+            {selectedVideos[activeSceneId] && (
+              <span style={{ fontSize: '10px', color: 'var(--color-emerald)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}>
+                <CheckCircle2 size={11} /> Image Ready
+              </span>
+            )}
+          </div>
+
+          {/* Current AI Prompt configuration */}
+          <div className="form-group">
+            <label className="input-label" style={{ fontSize: '10px' }}>Text-to-Image Generation Prompt</label>
+            <textarea
+              value={activeScene.promptForAiImage || ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (setScenes) {
+                  setScenes(prev => prev.map(s => s.id === activeSceneId ? { ...s, promptForAiImage: val } : s));
+                }
+              }}
+              placeholder="A rare blue bird in a golden cage, professional studio photograph, dramatic lighting, 8k..."
+              className="textarea-input"
+              style={{ minHeight: '80px', fontSize: '12.5px' }}
+            />
+            <span style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Tip: Be descriptive. Mention visual style, camera angle, and artistic medium (e.g. "photorealistic, cinematic lighting, 8k").
+            </span>
+          </div>
+
+          {/* Active scene generation status */}
+          {aiImageStates[activeSceneId] && (
+            <div className="alert-box" style={{ background: aiImageStates[activeSceneId].status === 'error' ? 'rgba(239, 68, 68, 0.05)' : 'rgba(99, 102, 241, 0.05)', borderColor: aiImageStates[activeSceneId].status === 'error' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(99, 102, 241, 0.2)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {aiImageStates[activeSceneId].status === 'generating' && (
+                    <Loader2 size={14} className="animate-spin" style={{ color: 'var(--color-primary)' }} />
+                  )}
+                  <span className="text-xs font-bold uppercase" style={{ color: aiImageStates[activeSceneId].status === 'error' ? 'var(--color-red)' : 'var(--text-primary)' }}>
+                    {aiImageStates[activeSceneId].status === 'error' ? 'Generation Error' : 'Status'}
+                  </span>
+                </div>
+                <p style={{ fontSize: '12px', margin: 0, color: 'var(--text-secondary)' }}>
+                  {aiImageStates[activeSceneId].text}
+                </p>
+                {aiImageStates[activeSceneId].error && (
+                  <p style={{ fontSize: '10px', color: 'var(--color-red)', margin: 0, marginTop: '4px', background: 'rgba(239,68,68,0.08)', padding: '6px', borderRadius: '6px' }}>
+                    {aiImageStates[activeSceneId].error}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Generation Actions */}
+          <div className="flex-col gap-2">
+            <button
+              onClick={() => handleGenerateAiImageScene(activeSceneId)}
+              disabled={aiImageStates[activeSceneId]?.status === 'generating'}
+              className="glow-btn"
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            >
+              <ImageIcon size={14} />
+              <span>
+                {selectedVideos[activeSceneId] ? "Regenerate AI Image" : "Generate AI Image"}
+              </span>
+            </button>
+          </div>
+
+          {/* Settings Context Warning */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+            <AlertCircle size={14} style={{ color: 'var(--text-muted)' }} />
+            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+              Provider: <strong style={{ color: 'var(--color-accent)' }}>{apiKeys.aiImageProvider === 'mock' ? 'Mock / Sandbox (No Keys)' : `Cloudflare Workers AI (${apiKeys.aiImageModel})`}</strong>. Change this in Script &gt; AI Settings.
+            </span>
+          </div>
+
+        </div>
+      )}
+
+      {/* WIKIMEDIA COMMONS TAB CONTENT */}
+      {videoSourceTab === 'wikimedia' && activeSceneId && (
+        <div className="flex-col gap-3" style={{ paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <div className="flex-row items-center justify-between gap-2">
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              Search query for Wikimedia Commons public domain assets
+            </span>
+          </div>
+
+          <div className="flex-row items-center gap-2">
+            <div style={{ position: 'relative', flex: 1 }}>
+              <Search 
+                size={14} 
+                style={{ 
+                  position: 'absolute', 
+                  left: '12px', 
+                  top: '50%', 
+                  transform: 'translateY(-50%)', 
+                  color: 'var(--text-muted)',
+                  pointerEvents: 'none'
+                }} 
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && performSearch(searchQuery)}
+                placeholder="Search Wikimedia Commons..."
+                className="text-input"
+                style={{ paddingLeft: '34px', paddingRight: '12px' }}
+              />
+            </div>
+            <button
+              onClick={() => performSearch(searchQuery)}
+              className="glow-btn-secondary"
+              style={{ padding: '8px 16px', fontSize: '13px' }}
+            >
+              Find
+            </button>
+          </div>
+
+          {errorMsg && (
+            <div className="alert-box alert-box-danger">
+              <AlertCircle size={13} style={{ flexShrink: 0 }} />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="flex-col items-center gap-2" style={{ padding: '32px 0', color: 'var(--text-muted)', justifyContent: 'center' }}>
+              <Loader2 size={24} className="animate-spin" style={{ color: 'var(--color-primary)' }} />
+              <span style={{ fontSize: '12px' }}>Querying Wikimedia Commons database...</span>
+            </div>
+          ) : (
+            <div className="stock-grid">
+              {searchResults.map((video) => {
+                const isCurrentChoice = selectedVideos[activeSceneId] === video.videoUrl;
+                
+                return (
+                  <div
+                    key={video.id}
+                    onClick={() => handleSelectVideo(activeSceneId, video.videoUrl)}
+                    className={`stock-card ${isCurrentChoice ? 'active' : ''}`}
+                  >
+                    <img 
+                      src={video.thumbnail} 
+                      alt="Wikimedia thumbnail" 
+                      className="stock-card-img"
+                      style={{ objectFit: 'contain', background: '#090d16' }}
+                    />
+                    {video.isVideo && (
+                      <div style={{
+                        position: 'absolute',
+                        top: 0, left: 0, right: 0, bottom: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: 'rgba(0,0,0,0.2)',
+                        pointerEvents: 'none'
+                      }}>
+                        <div style={{
+                          background: 'rgba(0,0,0,0.6)',
+                          borderRadius: '50%',
+                          width: '28px',
+                          height: '28px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: '1px solid rgba(255,255,255,0.4)'
+                        }}>
+                          <PlayCircle size={14} style={{ color: '#fff', marginLeft: '1px' }} />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="stock-card-overlay" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
+                      <div className="stock-card-top" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: '3px' }}>
+                          <span className="stock-card-badge" style={{ background: video.source === 'Wikipedia' ? 'var(--color-primary)' : 'rgba(0,0,0,0.6)' }}>
+                            {video.source === 'Wikipedia' ? 'Wikipedia' : 'Commons'}
+                          </span>
+                          {video.isVideo && (
+                            <span className="stock-card-badge stock-card-badge-vertical" style={{ background: 'var(--color-emerald)' }}>
+                              Video
+                            </span>
+                          )}
+                          {video.isVertical && (
+                            <span className="stock-card-badge stock-card-badge-vertical">
+                              9:16
+                            </span>
+                          )}
+                        </div>
+                        {isCurrentChoice && (
+                          <span className="stock-card-select-icon" style={{ position: 'static', background: 'var(--color-emerald)', padding: '2px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 8px rgba(0,0,0,0.5)' }}>
+                            <CheckCircle2 size={12} style={{ color: '#ffffff' }} />
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="stock-card-bottom" style={{
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        gap: '2px',
+                        width: '100%',
+                        padding: '6px 8px',
+                        background: 'linear-gradient(transparent, rgba(0,0,0,0.9))',
+                        borderBottomLeftRadius: '8px',
+                        borderBottomRightRadius: '8px',
+                        display: 'flex'
+                      }}>
+                        <div className="flex-row items-center justify-between" style={{ width: '100%' }}>
+                          <span style={{ 
+                            fontSize: '10.5px', 
+                            color: '#ffffff', 
+                            fontWeight: '600', 
+                            textOverflow: 'ellipsis', 
+                            overflow: 'hidden', 
+                            whiteSpace: 'nowrap',
+                            maxWidth: video.isVideo ? 'calc(100% - 35px)' : '100%'
+                          }} title={video.title}>
+                            {video.title || "Untitled"}
+                          </span>
+                          {video.isVideo && (
+                            <span className="stock-card-duration" style={{ fontSize: '9px', padding: '1px 4px', background: 'rgba(0,0,0,0.4)', borderRadius: '4px' }}>
+                              {video.duration}s
+                            </span>
+                          )}
+                        </div>
+                        {video.description && (
+                          <span style={{ 
+                            fontSize: '8.5px', 
+                            color: 'rgba(255,255,255,0.7)', 
+                            textOverflow: 'ellipsis', 
+                            overflow: 'hidden', 
+                            whiteSpace: 'nowrap',
+                            width: '100%',
+                            textAlign: 'left'
+                          }} title={video.description}>
+                            {video.description}
+                          </span>
+                        )}
+                        {video.pageUrl && (
+                          <a 
+                            href={video.pageUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              fontSize: '8px',
+                              color: 'var(--color-primary)',
+                              textDecoration: 'none',
+                              marginTop: '2px',
+                              alignSelf: 'flex-start',
+                              opacity: 0.8,
+                              transition: 'opacity 0.2s'
+                            }}
+                            onMouseOver={(e) => {
+                              e.currentTarget.style.opacity = '1';
+                              e.currentTarget.style.textDecoration = 'underline';
+                            }}
+                            onMouseOut={(e) => {
+                              e.currentTarget.style.opacity = '0.8';
+                              e.currentTarget.style.textDecoration = 'none';
+                            }}
+                          >
+                            View Source ↗
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {searchResults.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '24px', fontSize: '11px', color: 'var(--text-muted)', gridColumn: 'span 2' }}>
+                  No Commons media found. Try search keywords like 'solar system', 'albert einstein', or 'world map'.
+                </div>
+              )}
+            </div>
+          )}
+
+          {wikimediaContinue && searchResults.length > 0 && (
+            <div className="flex-row-center" style={{ marginTop: '16px', marginBottom: '8px' }}>
+              <button
+                onClick={handleLoadMoreWikimedia}
+                disabled={loadingMore}
+                className="glow-btn-secondary"
+                style={{
+                  padding: '8px 24px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  minWidth: '150px',
+                  justifyContent: 'center',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  borderRadius: '8px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                }}
+              >
+                {loadingMore ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Loading...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={12} style={{ color: 'var(--color-emerald)' }} />
+                    <span>Load More</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
 
       {/* D-ID AI AVATAR TAB CONTENT */}
       {videoSourceTab === 'avatar' && (
