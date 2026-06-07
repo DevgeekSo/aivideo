@@ -1,0 +1,24 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/did/:path*",
+      "destination": "https://api.d-id.com/:path*"
+    },
+    {
+      "source": "/api/anthropic/:path*",
+      "destination": "https://api.anthropic.com/:path*"
+    },
+    {
+      "source": "/api/openrouter/:path*",
+      "destination": "https://openrouter.ai/:path*"
+    },
+    {
+      "source": "/api/replicate/:path*",
+      "destination": "https://api.replicate.com/:path*"
+    },
+    {
+      "source": "/api/cloudflare/:path*",
+      "destination": "https://api.cloudflare.com/:path*"
+    }
+  ]
+}
